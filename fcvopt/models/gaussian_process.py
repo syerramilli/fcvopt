@@ -3,11 +3,16 @@
 import numpy as np
 import emcee
 import warnings
+
+from copy import deepcopy
 from scipy.linalg import cholesky,solve_triangular
 from sklearn.base import clone
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
+
+from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
+from fcvopt.priors.model_prior import gp_prior
 
 class GP:
     def __init__(self,kernel,X,y,eps=1e-08):
@@ -115,8 +120,8 @@ class GP:
         else:
             return y_mean
 
-    def log_marginal_likelihood(self, theta=None):
-        """Returns log-marginal likelihood of theta for training data.
+    def log_likelihood(self, theta=None):
+        """Returns log-likelihood of theta for training data.
 
         Parameters
         ----------
@@ -160,7 +165,7 @@ class GP:
         return log_likelihood
 
 class GPMCMC:
-    def __init__(self,kernel,lower,upper,prior=None,n_hypers=30,
+    def __init__(self,kernel,lower,upper,n_hypers=30,
                  chain_length = 2000,burnin_length=2000,rng=None):
         if rng is None:
             self.rng = np.random.randint(0,2e+4)
@@ -170,19 +175,55 @@ class GPMCMC:
         self.kernel = kernel
         self.lower = lower
         self.upper = upper
-        self.prior = prior
         self.n_hypers = n_hypers
         self.chain_length = 2000
         self.burnin_length = 2000
         
         self.X_train = None
         self.y_train = None
+        self.burned = False
         
     def fit(self,X,y,**kwargs):
-        # TODO: add normalization checks
         
-        gp = GP(kernel,X,y)
+        X, y = check_X_y(X, y, multi_output=True, y_numeric=True)
         
+        self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
+        self.y_train = y
+        self.gp = GP(self.kernel,self.X_train,self.y_train)
+        self.prior = gp_prior(X.shape[1])
+        
+        # Initialize sampler
+        sampler = emcee.EnsembleSampler(self.n_hypers,
+                                        len(self.gp.kernel.theta),
+                                        self.log_posterior)
+        sampler.random_state = self.rng.get_state()
+        
+        if not self.burned:
+            self.p0 = self.prior.sample(self.n_hypers)
+            
+            self.p0,_,_ = sampler.run_mcmc(self.p0,self.burnin_length,
+                                           rstate0=self.rng)
+            self.burned = True
+            
+        pos,_,_ = sampler.run_mcmc(self.p0,self.chain_length,rstate0=self.rng)
+        
+        self.p0 = pos
+        self.hypers = sampler.chain[:, -1]
+        self.models = []
+        
+        for sampler in self.hypers:
+            model = deepcopy(self.gp)
+            model.fit(sampler)
+            self.models.append(model)
+            
+    def log_posterior(self,theta):
+        if np.any(theta) <- 15 or np.any(theta) > 15:
+            return -np.inf
+        log_lik = self.gp.log_likelihood(theta)
+        log_prior = self.prior.lnprob(theta)
+        return log_lik + log_prior
+    
+    def predict(self,X,return_std=True):
         
         
             
