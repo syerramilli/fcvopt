@@ -12,7 +12,7 @@ from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
 from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
-from fcvopt.priors.model_prior import gp_prior
+from fcvopt.priors.model_priors import GPPrior
 
 class GP:
     def __init__(self,kernel,X,y,eps=1e-08):
@@ -25,7 +25,7 @@ class GP:
             self.kernel = Matern(np.ones(self.d),nu=2.5)*\
                                  C(1.0) + WhiteKernel(eps)
         self.X_train = X
-        self.y_train = y[:]                        
+        self.y_train = y                     
         self.eps = eps
     
     def fit(self, theta):
@@ -51,7 +51,7 @@ class GP:
         self.K_inv = L_inv.dot(L_inv.T)
         tmp = np.ones((1,self.y_train.shape[0])).dot(self.K_inv)
         self.mu_hat = tmp.dot(self.y_train)/tmp.dot(np.ones(self.y_train.shape))
-        self._comp  = self.K_inv.dot(self.y_train) - self.mu_hat*tmp.T
+        self._comp  = self.K_inv.dot(self.y_train) - self.mu_hat*tmp[:s]
         
         return self
 
@@ -165,8 +165,8 @@ class GP:
         return log_likelihood
 
 class GPMCMC:
-    def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 2000,burnin_length=2000,rng=None):
+    def __init__(self,kernel,lower,upper,n_hypers=20,
+                 chain_length = 200,burnin_length=200,rng=None):
         if rng is None:
             self.rng = np.random.randint(0,2e+4)
         else:
@@ -179,30 +179,31 @@ class GPMCMC:
         self.chain_length = 2000
         self.burnin_length = 2000
         
+        self.prior = None
         self.X_train = None
         self.y_train = None
         self.burned = False
         
-    def fit(self,X,y,**kwargs):
+    def fit(self,X,y):
         
         X, y = check_X_y(X, y, multi_output=True, y_numeric=True)
         
         self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
         self.y_train = y
         self.gp = GP(self.kernel,self.X_train,self.y_train)
-        self.prior = gp_prior(X.shape[1])
+        self.prior = GPPrior(X.shape[1],np.std(y),np.std(y))
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,
                                         len(self.gp.kernel.theta),
                                         self.log_posterior)
-        sampler.random_state = self.rng.get_state()
+        #sampler.random_state = self.rng.get_state()
         
         if not self.burned:
             self.p0 = self.prior.sample(self.n_hypers)
             
-            self.p0,_,_ = sampler.run_mcmc(self.p0,self.burnin_length,
-                                           rstate0=self.rng)
+            self.p0,_,_ = sampler.run_mcmc(self.p0,self.burnin_length)#,
+                                           #rstate0=self.rng)
             self.burned = True
             
         pos,_,_ = sampler.run_mcmc(self.p0,self.chain_length,rstate0=self.rng)
@@ -217,13 +218,21 @@ class GPMCMC:
             self.models.append(model)
             
     def log_posterior(self,theta):
-        if np.any(theta) <- 15 or np.any(theta) > 15:
+        if np.any(theta<-20) or np.any(theta>20):
             return -np.inf
         log_lik = self.gp.log_likelihood(theta)
-        log_prior = self.prior.lnprob(theta)
+        log_prior = self.prior.lnpdf(theta)
+        
+        if log_lik is np.NaN:
+            print("Log-Likelhood compromised")
+        
+        if log_prior is np.NaN:
+            print("Log-prior compromised")
+        
         return log_lik + log_prior
     
-    def predict(self,X,return_std=True):
-        
+    def predict(self,X):
+        X,_,_ = zero_one_scale(X,self.lower,self.upper)
+        y_mean_vec
         
             
