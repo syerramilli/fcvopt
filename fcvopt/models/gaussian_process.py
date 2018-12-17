@@ -11,8 +11,8 @@ from sklearn.utils.validation import check_X_y, check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
-from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
-from fcvopt.priors.model_priors import GPPrior
+#from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
+#from fcvopt.priors.model_priors import GPPrior
 
 class GP:
     def __init__(self,kernel,X,y,eps=1e-08):
@@ -21,7 +21,7 @@ class GP:
         if kernel == "gaussian":
             self.kernel= RBF(np.ones(self.d))*C(1.0) +\
                              WhiteKernel(eps)
-        elif kernel == "Matern":
+        elif kernel == "matern":
             self.kernel = Matern(np.ones(self.d),nu=2.5)*\
                                  C(1.0) + WhiteKernel(eps)
         self.X_train = X
@@ -48,10 +48,10 @@ class GP:
             raise
         
         L_inv = solve_triangular(L,np.eye(L.shape[0]),lower=True)
-        self.K_inv = L_inv.dot(L_inv.T)
+        self.K_inv = L_inv.T.dot(L_inv)
         tmp = np.ones((1,self.y_train.shape[0])).dot(self.K_inv)
         self.mu_hat = tmp.dot(self.y_train)/tmp.dot(np.ones(self.y_train.shape))
-        self._comp  = self.K_inv.dot(self.y_train) - self.mu_hat*tmp[:s]
+        self._comp  = self.K_inv.dot(self.y_train) - self.mu_hat*tmp.flatten()
         
         return self
 
@@ -176,8 +176,8 @@ class GPMCMC:
         self.lower = lower
         self.upper = upper
         self.n_hypers = n_hypers
-        self.chain_length = 2000
-        self.burnin_length = 2000
+        self.chain_length = chain_length
+        self.burnin_length = burnin_length
         
         self.prior = None
         self.X_train = None
@@ -231,8 +231,28 @@ class GPMCMC:
         
         return log_lik + log_prior
     
-    def predict(self,X):
-        X,_,_ = zero_one_scale(X,self.lower,self.upper)
-        y_mean_vec
+    def predict(self,X,scaled=False,return_std=True):
+        if type(X) is not np.ndarray:
+            X = X.reshape(1,-1)
         
-            
+        if not scaled:
+            X,_,_ = zero_one_scale(X,self.lower,self.upper)
+        
+        predictions = np.array([model.predict(X) for model in self.models])
+        y_mean =  np.mean(predictions[:,0,:],axis=0)
+        
+        if return_std:
+            y_mean_sd = np.std(predictions[:,0,:],axis=0)
+            y_std = np.sqrt(np.mean(predictions[:,1,:]**2,axis=0) + y_mean_sd**2)
+            return y_mean,y_std
+        else:
+            return y_mean
+        
+    def get_incumbent(self):
+        y_mean = self.predict(self.X_train,scaled=True,return_std=False)
+        inc_index = np.argmin(y_mean)
+        X_inc = zero_one_rescale(self.X_train[inc_index,:],
+                                 self.lower,self.upper)
+        return X_inc,y_mean[inc_index]
+        
+        
