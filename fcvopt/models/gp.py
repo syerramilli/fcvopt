@@ -12,6 +12,7 @@ from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
 #from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
+#from fcvopt.util.preprocess import standardize_vec
 #from fcvopt.priors.model_priors import GPPrior
 
 class GP:
@@ -189,9 +190,9 @@ class GPMCMC:
         X, y = check_X_y(X, y, multi_output=True, y_numeric=True)
         
         self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
-        self.y_train = y
+        self.y_train,self.y_loc,self.y_scale = standardize_vec(y)
         self.gp = GP(self.kernel,self.X_train,self.y_train)
-        self.prior = GPPrior(X.shape[1],np.std(y),np.std(y))
+        self.prior = GPPrior(X.shape[1],1,0.1)
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,
@@ -232,19 +233,21 @@ class GPMCMC:
         return log_lik + log_prior
     
     def predict(self,X,scaled=False,return_std=True):
-        if type(X) is not np.ndarray:
-            X = X.reshape(1,-1)
+        if type(X) is not np.ndarray or X.ndim==1:
+            X_copy = np.array(X).reshape(1,-1)
+        else:
+            X_copy = np.copy(X)
         
         if not scaled:
-            X,_,_ = zero_one_scale(X,self.lower,self.upper)
+            X_copy,_,_ = zero_one_scale(X_copy,self.lower,self.upper)
         
-        predictions = np.array([model.predict(X) for model in self.models])
-        y_mean =  np.mean(predictions[:,0,:],axis=0)
+        predictions = np.array([model.predict(X_copy) for model in self.models])
+        y_mean = np.mean(predictions[:,0,:],axis=0)*self.y_scale + self.y_loc
         
         if return_std:
             y_mean_sd = np.std(predictions[:,0,:],axis=0)
             y_std = np.sqrt(np.mean(predictions[:,1,:]**2,axis=0) + y_mean_sd**2)
-            return y_mean,y_std
+            return y_mean,y_std*self.y_scale
         else:
             return y_mean
         

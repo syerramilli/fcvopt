@@ -14,3 +14,11 @@ def zero_one_scale(X,lower=None,upper=None):
     
 def zero_one_rescale(X_scaled,lower,upper):
     return lower + (upper-lower)*X_scaled
+
+def standardize_vec(v):
+    loc = np.mean(v)
+    scale = np.std(v)
+    return (v-np.mean(v))/np.std(v),loc,scale
+
+def unstandardize_vec(v,loc,scale):
+    return v*scale + loc
