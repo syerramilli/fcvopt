@@ -13,11 +13,9 @@ from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
 
-#from gp import GP,GPMCMC
-
-#from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
-#from fcvopt.util.preprocess import standardize_vec
-#from fcvopt.priors.model_priors import AGPPrior
+from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
+from fcvopt.util.preprocess import standardize_vec
+from fcvopt.priors.model_priors import AGPPrior
 
 class AGP:
     def __init__(self,kernel,X,X_list,y,U,P,eps=1e-08):

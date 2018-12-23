@@ -5,11 +5,10 @@ from copy import deepcopy
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
-
-# from fcvopt.models.gp import GPMCMC
-# from cvopt.acquisition.lcb import LCB
-# from fcvopt.util.samples import lh_sampler
-# from fcvopt.util.wrappers import scipy_minimize 
+from fcvopt.models.gp import GPMCMC
+from fcvopt.acquisition.lcb import LCBMCMC
+from fcvopt.util.samplers import lh_sampler
+from fcvopt.util.wrappers import scipy_minimize 
 
 
 class BayesOpt:

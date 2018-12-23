@@ -2,7 +2,6 @@
 
 import numpy as np
 
-
 def uniform_sampler(n_samples,lower,upper,rng=None):
     if rng is None:
         rng = np.random.RandomState(np.random.randint(20000))

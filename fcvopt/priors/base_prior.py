@@ -3,7 +3,6 @@
 import numpy as np
 import scipy.stats as sps
 
-
 class UniformPrior:
     def __init__(self,lower,upper,rng):
         self.lower = lower

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from base_prior import UniformPrior, NormalPrior
-from base_prior import HorseshoePrior, BetaPrior
+from fcvopt.priors.base_prior import UniformPrior, NormalPrior
+from fcvopt.priors.base_prior import HorseshoePrior, BetaPrior
 
 class GPPrior:
     def __init__(self,n_ls,hs_scale,rng):

@@ -3,8 +3,7 @@
 import numpy as np
 from scipy.optimize import minimize,Bounds
 
-from samplers import uniform_sampler
-#from fcvopt.util.samplers import uniform_sampler
+from fcvopt.util.samplers import uniform_sampler
 
 def scipy_minimize(fun,lower,upper,n_restarts=10,maximize=False,rng=None):
     mstarts = uniform_sampler(n_restarts,lower,upper,rng)
