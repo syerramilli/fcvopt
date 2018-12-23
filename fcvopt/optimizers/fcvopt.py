@@ -6,13 +6,13 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
 
-# from fcvopt.models.gp import GPMCMC
+# from fcvopt.models.gp import AGPMCMC
 # from cvopt.acquisition.lcb import LCB
 # from fcvopt.util.samples import lh_sampler
 # from fcvopt.util.wrappers import scipy_minimize 
 
 
-class BayesOpt:
+class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
                  return_prob=None,kernel="matern",n_init=3,min_iter=5,
                  max_iter=10,verbose=0,seed=None):
@@ -29,9 +29,9 @@ class BayesOpt:
         else:
             self.return_prob = return_prob
         
-        self.random_state = np.random.RandomState(seed=seed)
+        self.rng = np.random.RandomState(seed=seed)
         if type(cv) is int:
-            self.cv = KFold(n_splits=cv,random_state=self.random_state)
+            self.cv = KFold(n_splits=cv,shuffle=True,random_state=self.rng)
         else:
             self.cv = cv
         
@@ -66,12 +66,12 @@ class BayesOpt:
             setattr(estimator,self.param_names[j],params_[j])
             
         y_eval = [self._eval_model(estimator,train,test,X_alg,y_alg) \
-                  for train,test in self.folds[fold_ind]]
+                  for train,test in [self.folds[ind] for ind in fold_ind]]
         
         if return_average:
             return np.mean(y_eval)
         else:
-            return np.array(y_eval)
+            return y_eval
         
             
     def fit(self,X_alg,y_alg):
@@ -79,14 +79,15 @@ class BayesOpt:
         if self.gp is None:
             n_dim = self.param_bounds.shape[1]
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
-                                self.param_bounds[:,1],self.random_state)
-            self.folds = np.array([ind for ind in self.cv.split(X_alg)])
+                                self.param_bounds[:,1],self.rng)
+            self.folds = [ind for ind in self.cv.split(X_alg)]
+            self.f_list = [self.rng.randint(0,high=10,size=3)]*self.n_init
             self.y = [self._fold_eval(self.X[i,:],
-                                      np.arange(self.folds.shape[0]),
-                                      X_alg,y_alg,True)\
+                                      self.f_list[i],
+                                      X_alg,y_alg,False)\
             for i in np.arange(self.n_init)]
-            self.gp = GPMCMC(self.kernel,self.param_bounds[:,0],
-                                   self.param_bounds[:,1],rng=self.random_state)
+            self.gp = AGPMCMC(self.kernel,self.param_bounds[:,0],
+                              self.param_bounds[:,1],rng=self.rng)
             self.acq = None
             
             self.X_inc = np.zeros((self.max_iter,n_dim))
@@ -96,7 +97,8 @@ class BayesOpt:
         output_header = '%6s %9s %9s' % \
                     ('iter', 'f_best', 'acq_best')
         for i in range(self.max_iter):
-            self.gp.fit(self.X,self.y)
+            self.gp.fit(self.X,self.y,self.f_list)
+            
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
             if self.logscale is not None:
@@ -112,8 +114,19 @@ class BayesOpt:
             x_cand,acq_cand = scipy_minimize(self.acq,
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
-                                             rng = self.random_state)   
+                                             rng = self.rng)   
+            
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+            
+            dist_cand = np.sum(((self.X-x_cand)/(self.gp.upper-self.gp.lower))**2,
+                               axis=1)
+            
+            new_point = 1 
+            point_index = np.argwhere(dist_cand<=1e-3)
+            if len(point_index) !=0 :
+                point_index = point_index[0,0]
+                new_point = 0
+                x_cand = self.X[point_index,:]
             
             if self.verbose >= 2:
                 if i%10==0:
@@ -125,13 +138,22 @@ class BayesOpt:
             self.acq_vec[i] = acq_cand
                         
             if i < self.max_iter-1:
-                # evaluate candidate
-                y_cand = self._fold_eval(x_cand,np.arange(self.folds.shape[0]),
-                                     X_alg,y_alg,True)
-                # append observations
-                self.X = np.vstack((self.X,x_cand))
-                self.y = np.append(self.y,y_cand)
+                # pick fold to evaluate
+                f_cand = self._fold_pick(x_cand,new_point,point_index,
+                                         X_alg.shape[0])
                 
+                # evaluate candidate
+                y_cand = self._fold_eval(x_cand,f_cand,X_alg,y_alg,False)
+                
+                # append observations
+                if new_point:
+                    self.X = np.vstack((self.X,np.copy(x_cand)))
+                    self.y.append(y_cand)
+                    self.f_list.append(f_cand)
+                    
+                else:
+                    self.y[point_index].append(y_cand[0])
+                    self.f_list[point_index].append(f_cand[0])
         
         est_cand = self.gp.predict(x_cand,return_std=False)
         if self.logscale is not None:
@@ -141,7 +163,7 @@ class BayesOpt:
         if self.verbose >=1 :
             print('')
             print('Number of candidates evaluated.....: %g' % self.X.shape[0])
-            print('Number of folds in k-fold CV.......: %g' % self.cv.n_splits)
+            print('Number of folds evaluated..........: %g' % self.gp.y_train.shape[0])
             print('Estimated obj at incumbent.........: %g' % self.y_inc[-1])
             print('Estimated obj at candidate.........: %g' % est_cand)
             print('')
@@ -158,6 +180,21 @@ class BayesOpt:
         results["x_cand"] = x_cand
         
         return results
+    
+    def _fold_pick(self,x_cand,new_point,point_index,n_alg):
+        f_set = np.arange(len(self.folds))
+        if not new_point:
+            f_set = np.setdiff1d(f_set,self.f_list[point_index])
+            if len(f_set)==1:
+                return [f_set[0]]
+            elif len(f_set)==0:
+                f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
+                self.folds.append([ind for ind in self.cv.split(np.arange(n_alg))])
+                return [f_cand]
+                
+            
+        f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]
+        return [f_cand]
         
         
         

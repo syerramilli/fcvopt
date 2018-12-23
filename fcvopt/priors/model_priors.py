@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-#from fcvopt.prior.base_prior import UniformPrior, NormalPrior, HorseshoePrior
+from base_prior import UniformPrior, NormalPrior
+from base_prior import HorseshoePrior, BetaPrior
 
 class GPPrior:
-    def __init__(self,n_ls,sample_std=1,hs_scale=0.1):
+    def __init__(self,n_ls,hs_scale,rng):
         
         # length-scales
         self.n_ls = n_ls
         lower = np.log(0.1)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
-        self.ls_prior = UniformPrior(lower,upper)
+        self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
-        self.var_prior = NormalPrior(2*np.log(sample_std),1)
+        self.var_prior = NormalPrior(0,1,rng)
         
         # Noise Prior
-        self.noise_prior = HorseshoePrior(hs_scale)
+        self.noise_prior = HorseshoePrior(hs_scale,rng)
         
     def lnpdf(self,theta):
         log_p  = self.ls_prior.lnpdf(theta[0:self.n_ls])
@@ -29,3 +30,54 @@ class GPPrior:
         var_sample   = self.var_prior.sample(n_samples)
         noise_sample = self.noise_prior.sample(n_samples)
         return np.concatenate((ls_sample,var_sample,noise_sample),axis=1)
+    
+    
+class AGPPrior:
+    def __init__(self,n_ls,hs_scale,rng):
+        
+        # length-scales
+        self.n_ls = n_ls
+        #self.lvar = lvar
+        lower = np.log(0.1)*np.ones((n_ls,))
+        upper = np.log(10)*np.ones((n_ls,))
+        self.ls_prior = UniformPrior(lower,upper,rng)
+        
+        # variance terms
+        self.var_prior = NormalPrior(0,1,rng)
+        self.rho_prior = UniformPrior(-1,0,rng)
+        self.rho2_prior = BetaPrior(1,1,rng)
+        
+        # noise prior
+        self.noise_prior = HorseshoePrior(hs_scale,rng)
+        
+    def lnpdf(self,theta):
+        log_p  = self.ls_prior.lnpdf(theta[0:self.n_ls])
+        
+        dev_var = np.sum(np.exp(theta[self.n_ls+1+np.arange(2)]))
+        total_var = np.exp(theta[self.n_ls]) + dev_var
+        rho = np.log(1-dev_var/total_var)
+        rho2 = np.exp(theta[self.n_ls+1])/dev_var
+        total_var = np.log(total_var)
+        
+        log_p += self.var_prior.lnpdf(total_var) + self.rho_prior.lnpdf(rho)
+        log_p += self.rho2_prior.lnpdf(rho2)
+        log_p += - 2*total_var - np.log(1-rho)
+        
+        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 3])
+        return log_p
+    
+    def sample(self,n_samples):
+        ls_sample    = self.ls_prior.sample(n_samples)
+        
+        total_var_sample   = self.var_prior.sample(n_samples)
+        rho_sample = self.rho_prior.sample(n_samples)
+        rho2_sample = self.rho2_prior.sample(n_samples)
+        
+        sigf_sample = rho_sample + total_var_sample
+        sigd1_sample = np.log(rho2_sample * (1-np.exp(rho_sample))) + total_var_sample
+        sigd2_sample = np.log((1-rho2_sample) * (1-np.exp(rho_sample))) + total_var_sample
+        
+        noise_sample = self.noise_prior.sample(n_samples)
+        return np.concatenate((ls_sample,sigf_sample,
+                               sigd1_sample,sigd2_sample,
+                               noise_sample),axis=1)
