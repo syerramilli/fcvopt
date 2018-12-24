@@ -9,3 +9,6 @@
 
 # test files
 test.py
+
+# pkl files
+*.pkl
