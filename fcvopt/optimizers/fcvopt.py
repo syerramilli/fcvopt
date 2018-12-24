@@ -33,6 +33,9 @@ class FCVOpt:
             self.cv = KFold(n_splits=cv,shuffle=True,random_state=self.rng)
         else:
             self.cv = cv
+            
+        if hasattr(self.estimator,"random_state"):
+            self.estimator.random_state = self.rng
         
         self.kernel = kernel
         self.n_init = n_init
@@ -95,6 +98,7 @@ class FCVOpt:
             
         output_header = '%6s %9s %9s' % \
                     ('iter', 'f_best', 'acq_best')
+        
         for i in range(self.max_iter):
             self.gp.fit(self.X,self.y,self.f_list)
             
