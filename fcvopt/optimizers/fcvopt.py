@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import time
 from copy import deepcopy
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
@@ -45,7 +46,9 @@ class FCVOpt:
         
         self.gp = None
         self.X = None
-        self.y = None
+        self.y = []
+        self.eval_time = []
+        self.total_time = None
         self.folds = None
     
     def _eval_model(self,estimator,train,test,X_alg,y_alg):
@@ -67,27 +70,37 @@ class FCVOpt:
         for j in np.arange(len(self.param_names)):
             setattr(estimator,self.param_names[j],params_[j])
             
-        y_eval = [self._eval_model(estimator,train,test,X_alg,y_alg) \
-                  for train,test in [self.folds[ind] for ind in fold_ind]]
+        time_eval = []
+        y_eval = []
+        
+        for ind in fold_ind:
+            start_time = time.time()
+            train,test = self.folds[ind]
+            y_eval.append(self._eval_model(estimator,train,test,X_alg,y_alg))
+            time_eval.append(time.time()-start_time)
         
         if return_average:
-            return np.mean(y_eval)
+            return np.mean(y_eval),np.sum(time_eval)
         else:
-            return y_eval
+            return y_eval,time_eval
         
             
     def fit(self,X_alg,y_alg):
         
+        start_time = time.time()
         if self.gp is None:
             n_dim = self.param_bounds.shape[1]
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                 self.param_bounds[:,1],self.rng)
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = [self.rng.randint(0,high=10,size=3)]*self.n_init
-            self.y = [self._fold_eval(self.X[i,:],
-                                      self.f_list[i],
-                                      X_alg,y_alg,False)\
-            for i in np.arange(self.n_init)]
+            for i in np.arange(self.n_init):
+                tmp1,tmp2 = self._fold_eval(self.X[i,:],
+                                            self.f_list[i],
+                                            X_alg,y_alg,False)
+                self.y.append(tmp1)
+                self.eval_time.append(tmp2)
+                
             self.gp = AGPMCMC(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],rng=self.rng)
             self.acq = None
@@ -146,18 +159,22 @@ class FCVOpt:
                                          X_alg.shape[0])
                 
                 # evaluate candidate
-                y_cand = self._fold_eval(x_cand,f_cand,X_alg,y_alg,False)
+                y_cand,time_cand = self._fold_eval(x_cand,f_cand,
+                                                   X_alg,y_alg,False)
                 
                 # append observations
                 if new_point:
                     self.X = np.vstack((self.X,np.copy(x_cand)))
                     self.y.append(y_cand)
+                    self.eval_time.append(time_cand)
                     self.f_list.append(f_cand)
                     
                 else:
-                    self.y[point_index].append(y_cand[0])
-                    self.f_list[point_index].append(f_cand[0])
+                    self.y[point_index].extend(y_cand)
+                    self.eval_time[point_index].extend(time_cand)
+                    self.f_list[point_index].extend(f_cand)
         
+        self.total_time = time.time()-start_time
         est_cand = self.gp.predict(x_cand,return_std=False)
         if self.logscale is not None:
             x_cand[self.logscale] = np.exp(x_cand[self.logscale])
