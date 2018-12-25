@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-import scipy.sparse as sp
 import emcee
 import warnings
 
 from copy import deepcopy
+from scipy.linalg import block_diag
 from scipy.linalg import cholesky,solve_triangular, inv
 from sklearn.base import clone
 from sklearn.utils.validation import check_array
@@ -72,13 +72,13 @@ class AGP:
                 raise
             Ainv[k] = tmp
         
-        Ainv = sp.block_diag(Ainv)
+        Ainv = block_diag(*Ainv)
         Ainv = self.P.T.dot(Ainv).dot(self.P)
         
         tmp = self.U.T.dot(Ainv)
-        inner = Sigma_n_inv + tmp.dot(self.U).toarray()
-        inner_inv = inv(inner)
-        self.K_inv = Ainv.toarray() - (tmp.T.dot(inner_inv)).dot(tmp.toarray()) 
+        inner = Sigma_n_inv + tmp.dot(self.U)
+        tmp2 = np.linalg.solve(inner,tmp)
+        self.K_inv = Ainv - tmp.T.dot(tmp2)
         
         tmp = np.ones((1,self.y_train.shape[0])).dot(self.K_inv)
         self.mu_hat = (tmp.dot(self.y_train)/tmp.dot(np.ones(self.y_train.shape)))[0]
@@ -128,7 +128,7 @@ class AGP:
         X = check_array(X)
         
         K_trans = self.k1_(X, self.X_train)
-        K_trans =  K_trans.dot(self.U.toarray().T)
+        K_trans =  K_trans.dot(self.U.T)
         y_mean = self.mu_hat + K_trans.dot(self._comp)
         if return_cov:
             v = self.K_inv.dot(K_trans)
@@ -192,13 +192,14 @@ class AGP:
             Ainv[k] = tmp
             ldet_K += tmp2
         
-        Ainv = sp.block_diag(Ainv)
+        Ainv = block_diag(*Ainv)
         Ainv = self.P.T.dot(Ainv).dot(self.P)
         
         tmp = self.U.T.dot(Ainv)
-        inner = Sigma_n_inv + tmp.dot(self.U).toarray()
-        inner_inv = inv(inner)
-        K_inv = Ainv.toarray() - (tmp.T.dot(inner_inv)).dot(tmp.toarray()) 
+        inner = Sigma_n_inv + tmp.dot(self.U)
+        tmp2 = np.linalg.solve(inner,tmp)
+        ldet_K += np.log(np.linalg.det(inner))
+        K_inv = Ainv - tmp.T.dot(tmp2)
         
         y_train = np.copy(self.y_train)
         tmp = np.ones((1,y_train.shape[0])).dot(K_inv)
@@ -243,12 +244,12 @@ class AGPMCMC:
         f_full = np.array([subitem for item in f_list for subitem in item])
         self.N = f_full.size
         self.groups = np.unique(f_full)
-        P = sp.lil_matrix((self.N,self.N))
+        P = np.zeros((self.N,self.N))
         P[np.arange(self.N),np.argsort(f_full)] = 1
         
         # partition points by fold/group
         n_reps = [len(f_vec) for f_vec in f_list]
-        U = sp.block_diag([np.ones((n_rep,1)) for n_rep in n_reps])
+        U = block_diag(*[np.ones((n_rep,1)) for n_rep in n_reps])
         
         X_aug = np.repeat(self.X_train,n_reps,axis=0)
         n_dim = len(self.lower)
@@ -330,13 +331,13 @@ class AGPMCMC:
         msp = []
         for fold_id in fold_ids:   
             for i,m in enumerate(self.models):
-                k1_x = m.k1_(x_copy,m.X_train).dot(m.U.toarray().T)
+                k1_x = m.k1_(x_copy,m.X_train).dot(m.U.T)
     
                 k2_x = np.hstack([m.k2_(x_copy,m.X_list[i]) if fold_id == group \
                                   else np.zeros((1,m.X_list[i].shape[0])) \
                                   for i,group in enumerate(self.groups)])
                 
-                r = k1_x + k2_x.dot(m.P.toarray().T)
+                r = k1_x + k2_x.dot(m.P.T)
                 tmp = r.dot(m.K_inv)
                 k1_var = m.k1_(x_copy)
                 total_var = k1_var + m.k2_(x_copy)
