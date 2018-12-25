@@ -6,7 +6,7 @@ import warnings
 
 from copy import deepcopy
 from scipy.linalg import block_diag
-from scipy.linalg import cholesky,solve_triangular, inv
+from scipy.linalg import cholesky,solve_triangular, solve
 from sklearn.base import clone
 from sklearn.utils.validation import check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
@@ -77,7 +77,7 @@ class AGP:
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
-        tmp2 = np.linalg.solve(inner,tmp)
+        tmp2 = solve(inner,tmp)
         self.K_inv = Ainv - tmp.T.dot(tmp2)
         
         tmp = np.ones((1,self.y_train.shape[0])).dot(self.K_inv)
@@ -197,7 +197,7 @@ class AGP:
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
-        tmp2 = np.linalg.solve(inner,tmp)
+        tmp2 = solve(inner,tmp)
         ldet_K += np.log(np.linalg.det(inner))
         K_inv = Ainv - tmp.T.dot(tmp2)
         
