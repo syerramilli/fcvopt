@@ -213,7 +213,7 @@ class AGP:
 
 class AGPMCMC:
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 150,burnin_length=200,rng=None):
+                 chain_length = 15,burnin_length=100,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
@@ -263,16 +263,15 @@ class AGPMCMC:
         sampler = emcee.EnsembleSampler(self.n_hypers,
                                         n_dim+4,
                                         self.log_posterior)
-        #sampler.random_state = self.rng.get_state()
+        sampler.random_state = self.rng.get_state()
         
         if not self.burned:
             self.p0 = self.prior.sample(self.n_hypers)
             
-            self.p0,_,_ = sampler.run_mcmc(self.p0,self.burnin_length,
-                                           rstate0=self.rng)
+            self.p0,_,_ = sampler.run_mcmc(self.p0,self.burnin_length)
             self.burned = True
             
-        pos,_,_ = sampler.run_mcmc(self.p0,self.chain_length,rstate0=self.rng)
+        pos,_,_ = sampler.run_mcmc(self.p0,self.chain_length)
         
         self.p0 = pos
         self.hypers = sampler.chain[:, -1]
