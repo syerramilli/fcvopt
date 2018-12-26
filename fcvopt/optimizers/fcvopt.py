@@ -209,7 +209,7 @@ class FCVOpt:
                 return [f_set[0]]
             elif len(f_set)==0:
                 f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
-                self.folds.append([ind for ind in self.cv.split(np.arange(n_alg))])
+                self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
                 return [f_cand]
                 
             
