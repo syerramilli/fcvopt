@@ -93,8 +93,9 @@ class FCVOpt:
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                 self.param_bounds[:,1],self.rng)
             self.folds = [ind for ind in self.cv.split(X_alg)]
-            self.f_list = [self.rng.choice(np.arange(self.cv.n_splits),
-                                           size=3,replace=False).tolist()]*self.n_init
+            self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
+                                                  size=3,replace=False),
+                                  reps=(self.n_init,1)).to_list()
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
