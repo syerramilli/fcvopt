@@ -95,7 +95,7 @@ class FCVOpt:
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
                                                   size=3,replace=False),
-                                  reps=(self.n_init,1)).to_list()
+                                  reps=(self.n_init,1)).tolist()
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
@@ -111,11 +111,17 @@ class FCVOpt:
             self.y_inc = np.zeros((self.max_iter,))
             self.acq_vec = np.zeros((self.max_iter,))
             
+            # gp timers
+            self.mcmc_time = np.zeros((self.max_iter,))
+            self.acq_time = np.zeros((self.max_iter,))
+            
         output_header = '%6s %9s %9s' % \
                     ('iter', 'f_best', 'acq_best')
         
         for i in range(self.max_iter):
+            mcmc_start = time.time()
             self.gp.fit(self.X,self.y,self.f_list)
+            self.mcmc_time[i] = time.time()-mcmc_start
             
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
@@ -128,11 +134,13 @@ class FCVOpt:
                 #self.acq = LCB(self.gp)
             else:
                 self.acq.update(self.gp)
-                
+            
+            acq_start = time.time()
             x_cand,acq_cand = scipy_minimize(self.acq,
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
-                                             rng = self.rng)   
+                                             rng = self.rng)
+            self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
             
