@@ -11,9 +11,9 @@ from sklearn.utils.validation import check_X_y, check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
-#from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
-#from fcvopt.util.preprocess import standardize_vec
-#from fcvopt.priors.model_priors import GPPrior
+from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
+from fcvopt.util.preprocess import standardize_vec
+from fcvopt.priors.model_priors import GPPrior
 
 class GP:
     def __init__(self,kernel,X,y,eps=1e-08):
@@ -166,8 +166,8 @@ class GP:
         return log_likelihood
 
 class GPMCMC:
-    def __init__(self,kernel,lower,upper,n_hypers=20,
-                 chain_length = 200,burnin_length=200,rng=None):
+    def __init__(self,kernel,lower,upper,n_hypers=30,
+                 chain_length = 10,burnin_length=50,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
