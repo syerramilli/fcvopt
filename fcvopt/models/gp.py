@@ -101,7 +101,7 @@ class GP:
         K_trans = self.kernel_.k1(X, self.X_train)
         y_mean = self.mu_hat + K_trans.dot(self._comp)
         if return_cov:
-            v = self.K_inv.dot(K_trans)
+            v = self.K_inv.dot(K_trans.T)
             y_cov = self.kernel_.k1(X) - K_trans.dot(v)  # Line 6
             return y_mean, y_cov
         elif return_std:
@@ -164,6 +164,7 @@ class GP:
         log_likelihood += -np.log(np.linalg.det(L))                                        
         
         return log_likelihood
+        
 
 class GPMCMC:
     def __init__(self,kernel,lower,upper,n_hypers=30,
@@ -257,5 +258,3 @@ class GPMCMC:
         X_inc = zero_one_rescale(self.X_train[inc_index,:],
                                  self.lower,self.upper)
         return X_inc,y_mean[inc_index]
-        
-        
