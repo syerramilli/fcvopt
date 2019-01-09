@@ -7,7 +7,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
 from fcvopt.models.agp import AGPMCMC
-from fcvopt.acquisition.lcb import LCBMCMC
+from fcvopt.acquisition.lcb import LCB
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
 
@@ -130,8 +130,8 @@ class FCVOpt:
             
             # acquisition function optimization - find candidate
             if self.acq is None:
-                self.acq = LCBMCMC(self.gp)
-                #self.acq = LCB(self.gp)
+                #self.acq = LCBMCMC(self.gp)
+                self.acq = LCB(self.gp)
             else:
                 self.acq.update(self.gp)
             

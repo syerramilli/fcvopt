@@ -14,7 +14,7 @@ class LCB:
         x_copy = np.copy(x)
         if x.ndim == 1:
             x_copy = x_copy.reshape((1,-1))
-        y_mean,y_std = self.model.predict(x,return_std=True)
+        y_mean,y_std = self.model.predict(x_copy,scaled=True,return_std=True)
         val = y_mean - self.kappa*y_std
         return val
     

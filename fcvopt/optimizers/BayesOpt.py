@@ -7,7 +7,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
 from fcvopt.models.gp import GPMCMC
-from fcvopt.acquisition.lcb import LCBMCMC
+from fcvopt.acquisition.lcb import LCB
 from fcvopt.acquisition.improvement import ImprovLCBMCMC
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
@@ -148,8 +148,8 @@ class BayesOpt:
             
             # acquisition function optimization - find candidate
             if self.acq is None:
-                self.acq = LCBMCMC(self.gp)
-                #self.acq = LCB(self.gp)
+                #self.acq = LCBMCMC(self.gp)
+                self.acq = LCB(self.gp)
             else:
                 self.acq.update(self.gp)
             
