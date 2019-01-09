@@ -131,7 +131,7 @@ class AGP:
         K_trans =  K_trans.dot(self.U.T)
         y_mean = self.mu_hat + K_trans.dot(self._comp)
         if return_cov:
-            v = self.K_inv.dot(K_trans)
+            v = self.K_inv.dot(K_trans.T)
             y_cov = self.k1_(X) - K_trans.dot(v)  # Line 6
             return y_mean, y_cov
         elif return_std:

@@ -15,10 +15,9 @@ class ImprovLCB:
     def __call__(self,x):        
         X = np.row_stack((x,self.x_inc))
         y_mean,y_cov = self.model.predict(X,return_std=False,return_cov=True)
-        tmp = np.max(np.trace(y_cov)-2*y_cov[0,1],0)
+        tmp = np.max([np.trace(y_cov)-2*y_cov[0,1],0])
         val = y_mean[0]-y_mean[1] -self.kappa*np.sqrt(tmp)
         
-        den = 1
         if hasattr(self.model,"kernel_"):
             # Regular GP
             den = 2*np.exp(0.5*self.model.kernel_.k1.theta[-1])
