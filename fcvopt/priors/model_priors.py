@@ -44,7 +44,7 @@ class AGPPrior:
         
         # variance terms
         self.var_prior = NormalPrior(0,1,rng)
-        self.rho_prior = UniformPrior(-1,0,rng)
+        self.rho_prior = BetaPrior(10,3,rng)
         self.rho2_prior = BetaPrior(1,1,rng)
         
         # noise prior
@@ -55,13 +55,14 @@ class AGPPrior:
         
         dev_var = np.sum(np.exp(theta[self.n_ls+1+np.arange(2)]))
         total_var = np.exp(theta[self.n_ls]) + dev_var
-        rho = np.log(1-dev_var/total_var)
+        rho = 1-dev_var/total_var
         rho2 = np.exp(theta[self.n_ls+1])/dev_var
         total_var = np.log(total_var)
         
         log_p += self.var_prior.lnpdf(total_var) + self.rho_prior.lnpdf(rho)
         log_p += self.rho2_prior.lnpdf(rho2)
-        log_p += - 2*total_var - np.log(1-rho)
+        log_p += - 2*total_var - np.log(1-rho) 
+        log_p += np.sum(theta[self.n_ls+np.arange(3)])
         
         log_p += self.noise_prior.lnpdf(theta[self.n_ls + 3])
         return log_p
@@ -73,9 +74,9 @@ class AGPPrior:
         rho_sample = self.rho_prior.sample(n_samples)
         rho2_sample = self.rho2_prior.sample(n_samples)
         
-        sigf_sample = rho_sample + total_var_sample
-        sigd1_sample = np.log(rho2_sample * (1-np.exp(rho_sample))) + total_var_sample
-        sigd2_sample = np.log((1-rho2_sample) * (1-np.exp(rho_sample))) + total_var_sample
+        sigf_sample = np.log(rho_sample) + total_var_sample
+        sigd1_sample = np.log(rho2_sample * (1-rho_sample)) + total_var_sample
+        sigd2_sample = np.log((1-rho2_sample) * (1-rho_sample)) + total_var_sample
         
         noise_sample = self.noise_prior.sample(n_samples)
         return np.concatenate((ls_sample,sigf_sample,
