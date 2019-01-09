@@ -167,8 +167,8 @@ class AGP:
             Log-marginal likelihood of theta for training data.
         """
         if theta is None:
-            self.k1_ = clone(self.k1)
-            self.k2_ = clone(self.k2)
+            k1_ = clone(self.k1)
+            k2_ = clone(self.k2)
         else:
             k1_ = self.k1.clone_with_theta(theta[np.arange(self.n_dim+1)])
             k2_params = np.append(np.arange(self.n_dim),

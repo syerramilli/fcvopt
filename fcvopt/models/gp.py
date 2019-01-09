@@ -137,7 +137,7 @@ class GP:
             Log-marginal likelihood of theta for training data.
         """
         if theta is None:
-            if not hasattr(self, "X_train_"):
+            if not hasattr(self, "kernel_"):
                 kernel = clone(self.kernel)
             else:
                 kernel = clone(self.kernel_)
@@ -157,7 +157,6 @@ class GP:
         L_inv_y = L_inv.dot(y_train)
         L_inv_ones = L_inv.dot(np.ones(y_train.shape))
         mu_hat = L_inv_ones.dot(L_inv_y)/L_inv_ones.dot(L_inv_ones)
-        y_train = y_train-mu_hat
 
         # Compute log-likelihood - not returning constant term
         log_likelihood = -0.5 * np.linalg.norm(L_inv_y-mu_hat*L_inv_ones)**2
