@@ -148,12 +148,12 @@ class GP:
         K[np.diag_indices_from(K)] += self.eps
         
         try:
-            L = cholesky(K, lower=True)  # Line 2
+            L = cholesky(K, lower=True,check_finite=False)  # Line 2
         except np.linalg.LinAlgError:
             return -np.inf
         
         y_train = np.copy(self.y_train)
-        L_inv = solve_triangular(L,np.eye(L.shape[0]))
+        L_inv = solve_triangular(L,np.eye(L.shape[0]),lower=True)
         L_inv_y = L_inv.dot(y_train)
         L_inv_ones = L_inv.dot(np.ones(y_train.shape))
         mu_hat = L_inv_ones.dot(L_inv_y)/L_inv_ones.dot(L_inv_ones)
