@@ -5,7 +5,7 @@ import emcee
 import warnings
 
 from copy import deepcopy
-from scipy.linalg import cholesky,solve_triangular
+from scipy.linalg import cholesky,solve_triangular,det
 from sklearn.base import clone
 from sklearn.utils.validation import check_X_y, check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
@@ -160,7 +160,7 @@ class GP:
 
         # Compute log-likelihood - not returning constant term
         log_likelihood = -0.5 * np.linalg.norm(L_inv_y-mu_hat*L_inv_ones)**2
-        log_likelihood += -np.log(np.linalg.det(L))                                        
+        log_likelihood += -np.log(det(L))                                        
         
         return log_likelihood
         
