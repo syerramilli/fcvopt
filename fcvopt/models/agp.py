@@ -6,7 +6,7 @@ import warnings
 
 from copy import deepcopy
 from scipy.linalg import block_diag
-from scipy.linalg import cholesky,solve_triangular, solve
+from scipy.linalg import cholesky,solve_triangular,solve,det
 from sklearn.base import clone
 from sklearn.utils.validation import check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
@@ -34,16 +34,19 @@ class AGP:
         self.P = P                 
         self.eps = eps
         
-    def _kernel_inv(self,kernel,X):
+    def _kernel_inv(self,kernel,X,det=True):
         K = kernel(X)
         K[np.diag_indices_from(K)] += self.eps
         L = cholesky(K, lower=True)  # Line 2
         
         L_inv = solve_triangular(L,np.eye(L.shape[0]),lower=True)
         K_inv = L_inv.T.dot(L_inv)
-        ldet_K = 2*np.log(np.linalg.det(L))
         
-        return K_inv,ldet_K
+        if det:
+            ldet_K = 2*np.sum(np.log(np.diag(L)))
+            return K_inv,ldet_K
+        else:
+            return K_inv
         
     def fit(self, theta):
         
@@ -59,7 +62,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv,_ = self._kernel_inv(self.k1_,self.X_train)
+            Sigma_n_inv = self._kernel_inv(self.k1_,self.X_train,False)
         except np.linalg.LinAlgError:
             raise
         
@@ -67,7 +70,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp,_ = self._kernel_inv(self.k2_,self.X_list[k])
+                tmp = self._kernel_inv(self.k2_,self.X_list[k],False)
             except np.linalg.LinAlgError:
                 raise
             Ainv[k] = tmp
@@ -178,7 +181,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv,ldet_K = self._kernel_inv(k1_,self.X_train)
+            Sigma_n_inv,ldet_K = self._kernel_inv(k1_,self.X_train,True)
         except np.linalg.LinAlgError:
             return -np.inf
         
@@ -186,7 +189,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp,tmp2 = self._kernel_inv(k2_,self.X_list[k])
+                tmp,tmp2 = self._kernel_inv(k2_,self.X_list[k],True)
             except np.linalg.LinAlgError:
                 return -np.inf
             Ainv[k] = tmp
@@ -198,7 +201,7 @@ class AGP:
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
         tmp2 = solve(inner,tmp)
-        ldet_K += np.log(np.linalg.det(inner))
+        ldet_K += np.log(det(inner))
         K_inv = Ainv - tmp.T.dot(tmp2)
         
         y_train = np.copy(self.y_train)
