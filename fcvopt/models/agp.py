@@ -6,12 +6,11 @@ import warnings
 
 from copy import deepcopy
 from scipy.linalg import block_diag
-from scipy.linalg import cholesky,solve_triangular,solve,det
+from scipy.linalg import cholesky,solve_triangular,cho_solve
 from sklearn.base import clone
 from sklearn.utils.validation import check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
-
 
 from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.util.preprocess import standardize_vec
@@ -80,7 +79,8 @@ class AGP:
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
-        tmp2 = solve(inner,tmp)
+        inner_chol = cholesky(inner,check_finite=False)
+        tmp2 = cho_solve((inner_chol,False),tmp)
         self.K_inv = Ainv - tmp.T.dot(tmp2)
         
         tmp = np.ones((1,self.y_train.shape[0])).dot(self.K_inv)
@@ -200,8 +200,9 @@ class AGP:
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
-        tmp2 = solve(inner,tmp)
-        ldet_K += np.log(det(inner))
+        inner_chol = cholesky(inner,check_finite=False)
+        tmp2 = cho_solve((inner_chol,False),tmp)
+        ldet_K += 2*np.sum(np.log(np.diag(inner_chol)))
         K_inv = Ainv - tmp.T.dot(tmp2)
         
         y_train = np.copy(self.y_train)
