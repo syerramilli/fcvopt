@@ -160,7 +160,8 @@ class GP:
 
         # Compute log-likelihood - not returning constant term
         log_likelihood = -0.5 * np.linalg.norm(L_inv_y-mu_hat*L_inv_ones)**2
-        log_likelihood += -np.log(det(L))                                        
+        log_likelihood += -np.sum(np.log(np.diag(L)))
+        #log_likelihood += -np.log(det(L))                                        
         
         return log_likelihood
         
