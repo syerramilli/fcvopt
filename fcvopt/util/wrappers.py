@@ -5,8 +5,10 @@ from scipy.optimize import minimize,Bounds
 
 from fcvopt.util.samplers import uniform_sampler
 
-def scipy_minimize(fun,lower,upper,n_restarts=1,maximize=False,rng=None):
-    mstarts = uniform_sampler(n_restarts+1,lower,upper,rng)
+def scipy_minimize(fun,x0,lower,upper,n_restarts=1,maximize=False,rng=None):
+    mstarts = np.concatenate((x0.reshape((1,-1)),
+                              uniform_sampler(n_restarts,lower,upper,rng)),
+                                axis=0)
     x_best = np.copy(lower)
     f_best = np.Inf
     

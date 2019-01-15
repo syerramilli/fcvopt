@@ -113,20 +113,22 @@ class FCVOpt:
             self.y_inc = np.zeros((self.max_iter,))
             self.acq_vec = np.zeros((self.max_iter,))
             self.term_vec = np.zeros((self.max_iter,))
+            self.sigma_f_vec = np.zeros((self.max_iter,))
             
             # gp timers
             self.mcmc_time = np.zeros((self.max_iter,))
             self.acq_time = np.zeros((self.max_iter,))
             self.term_time = np.zeros((self.max_iter,))
             
-        output_header = '%6s %9s %10s %10s' % \
-                    ('iter', 'f_best', 'acq_best',"term_crit")
+        output_header = '%6s %9s %10s %10s %10s' % \
+                    ('iter', 'f_best', 'acq_best',"term_crit","sigma_f")
         
         for i in range(self.max_iter):
             mcmc_start = time.time()
             self.gp.fit(self.X,self.y,self.f_list)
             self.mcmc_time[i] = time.time()-mcmc_start
             
+            self.sigma_f_vec[i] = self.gp.y_scale*np.sqrt(np.mean([np.exp(model.k1_.theta[-1]) for model in self.gp.models]))
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
             if self.logscale is not None:
@@ -143,12 +145,13 @@ class FCVOpt:
             
             term_start = time.time()
             _,term = scipy_minimize(self.term,
+                                    x_inc,
                                     np.zeros((n_dim,)),
                                     np.ones((n_dim,)),
                                     rng = self.rng,
                                     n_restarts=10)
             self.term_time[i] = time.time()-term_start
-            self.term_vec[i] = term
+            self.term_vec[i] = -term
             
             # acquisition function optimization - find candidate
             if self.acq is None:
@@ -159,6 +162,7 @@ class FCVOpt:
             
             acq_start = time.time()
             x_cand,acq_cand = scipy_minimize(self.acq,
+                                             x_inc,
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
                                              rng = self.rng,
@@ -181,8 +185,8 @@ class FCVOpt:
                 if i%10==0:
                     # print header every 10 iterations
                     print(output_header)
-                print('%6i %3.3e %3.3e %3.3e' %\
-                      (i, self.y_inc[i],acq_cand,term))
+                print('%6i %3.3e %3.3e %3.3e %3.3e' %\
+                      (i, self.y_inc[i],acq_cand,-term,self.sigma_f_vec[i]))
                 
             self.acq_vec[i] = acq_cand
                         

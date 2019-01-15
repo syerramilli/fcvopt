@@ -217,7 +217,7 @@ class AGP:
 
 class AGPMCMC:
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 10,burnin_length=50,rng=None):
+                 chain_length = 20,burnin_length=100,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
@@ -329,8 +329,8 @@ class AGPMCMC:
         y_var = []
         for model in self.models:
             y_m,y_cov = model.predict(X,return_std=False,return_cov=True)
-            y_mean.append(y_m[0]-y_m[1])
-            y_var.append(np.max([np.trace(y_cov)-2*y_cov[0,1],0]))
+            y_mean.append((y_m[0]-y_m[1])*self.y_scale)
+            y_var.append(np.max([np.trace(y_cov)-2*y_cov[0,1],0])*self.y_scale**2)
         
         return np.mean(y_m),np.sqrt(np.mean(y_var)+np.var(y_m))
         
