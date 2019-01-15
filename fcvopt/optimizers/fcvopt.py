@@ -146,7 +146,7 @@ class FCVOpt:
                                     np.zeros((n_dim,)),
                                     np.ones((n_dim,)),
                                     rng = self.rng,
-                                    n_restarts=3)
+                                    n_restarts=10)
             self.term_time[i] = time.time()-term_start
             self.term_vec[i] = term
             
@@ -161,7 +161,8 @@ class FCVOpt:
             x_cand,acq_cand = scipy_minimize(self.acq,
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
-                                             rng = self.rng)
+                                             rng = self.rng,
+                                             n_restarts=10)
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
