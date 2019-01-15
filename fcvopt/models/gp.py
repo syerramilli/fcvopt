@@ -246,8 +246,8 @@ class GPMCMC:
         y_mean = np.mean(predictions[:,0,:],axis=0)*self.y_scale + self.y_loc
         
         if return_std:
-            y_mean_sd = np.std(predictions[:,0,:],axis=0)
-            y_std = np.sqrt(np.mean(predictions[:,1,:]**2,axis=0) + y_mean_sd**2)
+            y_mean_var = np.var(predictions[:,0,:],axis=0)
+            y_std = np.sqrt(np.mean(predictions[:,1,:]**2,axis=0) + y_mean_var)
             return y_mean,y_std*self.y_scale
         else:
             return y_mean
