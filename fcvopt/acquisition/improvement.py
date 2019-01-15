@@ -28,16 +28,24 @@ class ImprovLCB:
     
 
 class ImprovLCBMCMC:
-    def __init__(self,model_mcmc,x_inc,kappa=2):
-        self.acq = [ImprovLCB(model,x_inc,kappa) for model in model_mcmc.models]
-        self.den = np.sqrt(np.sum([np.exp(model.kernel_.k1.theta[-1]) for model in model_mcmc.models]))
+    def __init__(self,model_mcmc,x_inc,kappa=1):
+        self.model_mcmc = model_mcmc
+        if hasattr(model_mcmc.models[0],"kernel_"):
+            self.den = np.mean([np.exp(0.5*model.kernel_.k1.theta[-1]) for model in model_mcmc.models])
+        else:
+            self.den = np.mean([np.exp(0.5*model.k1_.theta[-1]) for model in model_mcmc.models])
         self.kappa = kappa
+        self.x_inc = x_inc
         
     def update(self,model_mcmc,x_inc):
-        self.acq = [ImprovLCB(model,x_inc,self.kappa) for model in model_mcmc.models]
-        self.den = np.sqrt(np.sum([np.exp(model.kernel_.k1.theta[-1]) for model in model_mcmc.models]))
+        self.model_mcmc = model_mcmc
+        if hasattr(model_mcmc.models[0],"kernel_"):
+            self.den = np.mean([np.exp(0.5*model.kernel_.k1.theta[-1]) for model in model_mcmc.models])
+        else:
+            self.den = np.mean([np.exp(0.5*model.k1_.theta[-1]) for model in model_mcmc.models])
+        self.x_inc = x_inc
         
     def __call__(self,x):
-        val_vec = [acq_model(x) for acq_model in self.acq]
-        val = np.mean(val_vec,axis=0)
-        return val#/self.den
+        y_mean,y_std = self.model_mcmc._predict_diff(x,self.x_inc)
+        val = y_mean - self.kappa*y_std
+        return val/(2*self.kappa*self.den)
