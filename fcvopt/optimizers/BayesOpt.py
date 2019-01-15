@@ -129,7 +129,7 @@ class BayesOpt:
             x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
                                        self.param_bounds[:,0],
                                        self.param_bounds[:,1])
-            print(x_inc)
+            
             if self.term is None:
                 self.term = ImprovLCBMCMC(self.gp,x_inc)
             else:
