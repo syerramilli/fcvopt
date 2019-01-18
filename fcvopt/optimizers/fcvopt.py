@@ -128,15 +128,20 @@ class FCVOpt:
             self.gp.fit(self.X,self.y,self.f_list)
             self.mcmc_time[i] = time.time()-mcmc_start
             
-            self.sigma_f_vec[i] = self.gp.y_scale*np.sqrt(np.mean([np.exp(model.k1_.theta[-1]) for model in self.gp.models]))
+            self.sigma_f_vec[i] = self.gp.y_scale* \
+                            np.sqrt(np.mean([np.exp(model.k1_.theta[-1]) \
+                                             for model in self.gp.models]) + \
+                                    np.var([model.mu_hat \
+                                            for model in self.gp.models]))
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
+            
+            x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
+                                       self.param_bounds[:,0],
+                                       self.param_bounds[:,1])
             
             if self.logscale is not None:
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
                 
-            x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
-                                       self.param_bounds[:,0],
-                                       self.param_bounds[:,1])
             
             if self.term is None:
                 self.term = ImprovLCBMCMC(self.gp,x_inc)
@@ -179,7 +184,7 @@ class FCVOpt:
             if len(point_index) !=0 :
                 point_index = point_index[0,0]
                 new_point = 0
-                x_cand = self.X[point_index,:]
+                x_cand = self.X[point_index,:].copy()
             
             if self.verbose >= 2:
                 if i%10==0:
