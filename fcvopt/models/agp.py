@@ -337,7 +337,7 @@ class AGPMCMC:
     def get_incumbent(self):
         y_mean = self.predict(self.X_train,scaled=True,return_std=False)
         inc_index = np.argmin(y_mean)
-        X_inc = zero_one_rescale(self.X_train[inc_index,:],
+        X_inc = zero_one_rescale(self.X_train[inc_index,:].copy(),
                                  self.lower,self.upper)
         return X_inc,y_mean[inc_index]
     
