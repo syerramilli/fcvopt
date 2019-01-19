@@ -253,6 +253,8 @@ class FCVOpt:
                 self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
                 return [f_cand]
                 
-            
         f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]
         return [f_cand]
+    
+    def term_crit(self):
+        return (self.y_inc-self.acq_vec)/self.sigma_f_vec
