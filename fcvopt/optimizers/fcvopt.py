@@ -160,7 +160,6 @@ class FCVOpt:
             
             # acquisition function optimization - find candidate
             if self.acq is None:
-                #self.acq = LCBMCMC(self.gp)
                 self.acq = LCB(self.gp)
             else:
                 self.acq.update(self.gp)
@@ -257,6 +256,3 @@ class FCVOpt:
             
         f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]
         return [f_cand]
-        
-        
-        

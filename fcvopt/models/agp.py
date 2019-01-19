@@ -217,7 +217,7 @@ class AGP:
 
 class AGPMCMC:
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 20,burnin_length=100,rng=None):
+                 chain_length = 10,burnin_length=150,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
