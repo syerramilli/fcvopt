@@ -8,14 +8,14 @@ from sklearn.metrics import log_loss
 
 from fcvopt.models.agp import AGPMCMC
 from fcvopt.acquisition.lcb import LCB
-from fcvopt.acquisition.improvement import ImprovLCBMCMC
+#from fcvopt.acquisition.improvement import ImprovLCBMCMC
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
 from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
-                 return_prob=None,kernel="matern",n_init=3,min_iter=5,
+                 return_prob=None,kernel="matern",n_init=4,min_iter=5,
                  max_iter=10,verbose=0,seed=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -257,4 +257,4 @@ class FCVOpt:
         return [f_cand]
     
     def term_crit(self):
-        return (self.y_inc-self.acq_vec)/self.sigma_f_vec
+        return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
