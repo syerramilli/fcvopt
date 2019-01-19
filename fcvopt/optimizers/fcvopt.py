@@ -112,16 +112,16 @@ class FCVOpt:
             self.X_inc = np.zeros((self.max_iter,n_dim))
             self.y_inc = np.zeros((self.max_iter,))
             self.acq_vec = np.zeros((self.max_iter,))
-            self.term_vec = np.zeros((self.max_iter,))
+            #self.term_vec = np.zeros((self.max_iter,))
             self.sigma_f_vec = np.zeros((self.max_iter,))
             
             # gp timers
             self.mcmc_time = np.zeros((self.max_iter,))
             self.acq_time = np.zeros((self.max_iter,))
-            self.term_time = np.zeros((self.max_iter,))
+            #self.term_time = np.zeros((self.max_iter,))
             
-        output_header = '%6s %9s %10s %10s %10s' % \
-                    ('iter', 'f_best', 'acq_best',"term_crit","sigma_f")
+        output_header = '%6s %9s %10s %10s' % \
+                    ('iter', 'f_best', 'acq_best',"sigma_f")
         
         for i in range(self.max_iter):
             mcmc_start = time.time()
@@ -143,20 +143,20 @@ class FCVOpt:
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
                 
             
-            if self.term is None:
-                self.term = ImprovLCBMCMC(self.gp,x_inc)
-            else:
-                self.term.update(self.gp,x_inc)
-            
-            term_start = time.time()
-            _,term = scipy_minimize(self.term,
-                                    x_inc,
-                                    np.zeros((n_dim,)),
-                                    np.ones((n_dim,)),
-                                    rng = self.rng,
-                                    n_restarts=10)
-            self.term_time[i] = time.time()-term_start
-            self.term_vec[i] = -term
+#            if self.term is None:
+#                self.term = ImprovLCBMCMC(self.gp,x_inc)
+#            else:
+#                self.term.update(self.gp,x_inc)
+#            
+#            term_start = time.time()
+#            _,term = scipy_minimize(self.term,
+#                                    x_inc,
+#                                    np.zeros((n_dim,)),
+#                                    np.ones((n_dim,)),
+#                                    rng = self.rng,
+#                                    n_restarts=10)
+#            self.term_time[i] = time.time()-term_start
+#            self.term_vec[i] = -term
             
             # acquisition function optimization - find candidate
             if self.acq is None:
@@ -189,8 +189,8 @@ class FCVOpt:
                 if i%10==0:
                     # print header every 10 iterations
                     print(output_header)
-                print('%6i %3.3e %3.3e %3.3e %3.3e' %\
-                      (i, self.y_inc[i],acq_cand,-term,self.sigma_f_vec[i]))
+                print('%6i %3.3e %3.3e %3.3e' %\
+                      (i, self.y_inc[i],acq_cand,self.sigma_f_vec[i]))
                 
             self.acq_vec[i] = acq_cand
                         
