@@ -202,5 +202,7 @@ class BayesOpt:
         
         return results
         
+    def term_crit(self):
+        return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
         
         
