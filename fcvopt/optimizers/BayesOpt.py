@@ -163,7 +163,7 @@ class BayesOpt:
                 
             self.acq_vec[i] = acq_cand
                         
-            if i < self.max_iter-1:
+            if i < self.max_iter:
                 
                 # evaluate candidate
                 y_cand,time_cand = self._fold_eval(x_cand,

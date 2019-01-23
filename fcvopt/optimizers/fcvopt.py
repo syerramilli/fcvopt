@@ -194,7 +194,7 @@ class FCVOpt:
                 
             self.acq_vec[i] = acq_cand
                         
-            if i < self.max_iter-1:
+            if i < self.max_iter:
                 # pick fold to evaluate
                 f_cand = self._fold_pick(x_cand,new_point,point_index,
                                          X_alg.shape[0])
