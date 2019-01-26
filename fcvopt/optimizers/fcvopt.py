@@ -21,7 +21,7 @@ class FCVOpt:
         self.param_names = list(param_bounds.keys())
         self.param_bounds = np.array(list(param_bounds.values()))
         if logscale is not None:
-            self.param_bounds[:,logscale] = np.log(self.param_bounds[:,logscale])
+            self.param_bounds[logscale,:] = np.log(self.param_bounds[logscale,:])
         self.logscale = logscale
         self.metric = metric
         
@@ -90,7 +90,7 @@ class FCVOpt:
         
         start_time = time.time()
         if self.gp is None:
-            n_dim = self.param_bounds.shape[1]
+            n_dim = self.param_bounds.shape[0]
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                 self.param_bounds[:,1],self.rng)
             self.folds = [ind for ind in self.cv.split(X_alg)]

@@ -22,7 +22,7 @@ def lh_sampler(n_samples,lower,upper,rng=None):
     
     # generate row and column grids
     grid_bounds = np.stack([np.linspace(lower[i], upper[i], n_samples+1) \
-                            for i in np.arange(2)],axis=1)
+                            for i in np.arange(n_dim)],axis=1)
     grid_lower = grid_bounds[:-1,:]
     grid_upper = grid_bounds[1:,:]
     
