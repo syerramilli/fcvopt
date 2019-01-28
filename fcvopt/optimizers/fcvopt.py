@@ -2,7 +2,7 @@
 
 import numpy as np
 import time
-from copy import deepcopy
+from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
@@ -61,7 +61,7 @@ class FCVOpt:
         return self.metric(y_alg[test],y_pred)
     
     def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
-        estimator = deepcopy(self.estimator)
+        estimator = clone(self.estimator)
         
         params_ = np.copy(params)
         if self.logscale is not None:
@@ -69,7 +69,7 @@ class FCVOpt:
             
         # set parameters
         for j in np.arange(len(self.param_names)):
-            setattr(estimator,self.param_names[j],params_[j])
+            estimator.set_params(**{self.param_names[j]:params_[j]})
             
         time_eval = []
         y_eval = []
