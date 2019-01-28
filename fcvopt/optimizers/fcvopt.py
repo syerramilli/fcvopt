@@ -15,7 +15,8 @@ from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
-                 return_prob=None,kernel="matern",n_init=4,min_iter=5,
+                 integer=[],return_prob=None,kernel="matern",
+                 n_init=4,min_iter=5,
                  max_iter=10,verbose=0,seed=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -23,6 +24,7 @@ class FCVOpt:
         if logscale is not None:
             self.param_bounds[logscale,:] = np.log(self.param_bounds[logscale,:])
         self.logscale = logscale
+        self.integer = integer
         self.metric = metric
         
         if return_prob is None:
@@ -69,7 +71,11 @@ class FCVOpt:
             
         # set parameters
         for j in np.arange(len(self.param_names)):
-            estimator.set_params(**{self.param_names[j]:params_[j]})
+            tmp = params_[j]
+            if j in self.integer:
+                tmp = np.int(np.round(tmp))
+                
+            estimator.set_params(**{self.param_names[j]:tmp})
             
         time_eval = []
         y_eval = []
