@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
+import os
 import time
+import pickle
 from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
@@ -16,8 +18,8 @@ from fcvopt.util.preprocess import zero_one_scale
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
                  integer=[],return_prob=None,kernel="matern",
-                 n_init=4,min_iter=5,
-                 max_iter=10,verbose=0,seed=None):
+                 n_init=4,max_iter=10,verbose=0,seed=None,save_iter=10,
+                 save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
         self.param_bounds = np.array(list(param_bounds.values()))
@@ -43,9 +45,12 @@ class FCVOpt:
         
         self.kernel = kernel
         self.n_init = n_init
-        self.min_iter = min_iter
         self.max_iter = max_iter
         self.verbose = verbose
+        
+        # if saving, then
+        self.save_iter = save_iter
+        self.save_dir = save_dir
         
         self.gp = None
         self.X = None
@@ -118,13 +123,11 @@ class FCVOpt:
             self.X_inc = np.zeros((self.max_iter,n_dim))
             self.y_inc = np.zeros((self.max_iter,))
             self.acq_vec = np.zeros((self.max_iter,))
-            #self.term_vec = np.zeros((self.max_iter,))
             self.sigma_f_vec = np.zeros((self.max_iter,))
             
             # gp timers
             self.mcmc_time = np.zeros((self.max_iter,))
             self.acq_time = np.zeros((self.max_iter,))
-            #self.term_time = np.zeros((self.max_iter,))
             
         output_header = '%6s %9s %10s %10s' % \
                     ('iter', 'f_best', 'acq_best',"sigma_f")
@@ -148,21 +151,6 @@ class FCVOpt:
             if self.logscale is not None:
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
                 
-            
-#            if self.term is None:
-#                self.term = ImprovLCBMCMC(self.gp,x_inc)
-#            else:
-#                self.term.update(self.gp,x_inc)
-#            
-#            term_start = time.time()
-#            _,term = scipy_minimize(self.term,
-#                                    x_inc,
-#                                    np.zeros((n_dim,)),
-#                                    np.ones((n_dim,)),
-#                                    rng = self.rng,
-#                                    n_restarts=10)
-#            self.term_time[i] = time.time()-term_start
-#            self.term_vec[i] = -term
             
             # acquisition function optimization - find candidate
             if self.acq is None:
@@ -199,6 +187,12 @@ class FCVOpt:
                       (i, self.y_inc[i],acq_cand,self.sigma_f_vec[i]))
                 
             self.acq_vec[i] = acq_cand
+            
+            if self.save_iter is not None:
+                if (i+1)%self.save_iter == 0:
+                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    with open(fname,"wb") as f:
+                        pickle.dump(self,f)
                         
             if i < self.max_iter:
                 # pick fold to evaluate
