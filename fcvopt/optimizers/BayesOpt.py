@@ -2,7 +2,9 @@
 
 import numpy as np
 import time
-from copy import deepcopy
+import os
+import pickle
+from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
@@ -16,14 +18,16 @@ from fcvopt.util.preprocess import zero_one_scale
 
 class BayesOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
-                 return_prob=None,kernel="matern",n_init=3,min_iter=5,
-                 max_iter=10,verbose=0,seed=None):
+                 integer = [],return_prob=None,kernel="matern",n_init=3,
+                 min_iter=5,max_iter=10,verbose=0,seed=None,save_iter=10,
+                 save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
         self.param_bounds = np.array(list(param_bounds.values()))
         if logscale is not None:
             self.param_bounds[logscale,:] = np.log(self.param_bounds[logscale,:])
         self.logscale = logscale
+        self.integer = integer
         self.metric = metric
         
         if return_prob is None:
@@ -46,6 +50,10 @@ class BayesOpt:
         self.max_iter = max_iter
         self.verbose = verbose
         
+        # if saving, then
+        self.save_iter = save_iter
+        self.save_dir = save_dir
+        
         self.gp = None
         self.X = None
         self.y = []
@@ -62,7 +70,7 @@ class BayesOpt:
         return self.metric(y_alg[test],y_pred)
     
     def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
-        estimator = deepcopy(self.estimator)
+        estimator = clone(self.estimator)
         
         params_ = np.copy(params)
         if self.logscale is not None:
@@ -70,7 +78,11 @@ class BayesOpt:
             
         # set parameters
         for j in np.arange(len(self.param_names)):
-            setattr(estimator,self.param_names[j],params_[j])
+            tmp = params_[j]
+            if j in self.integer:
+                tmp = np.int(np.round(tmp))
+                
+            estimator.set_params(**{self.param_names[j]:tmp})
             
         time_eval = []
         y_eval = []
@@ -86,7 +98,6 @@ class BayesOpt:
         else:
             return y_eval,time_eval
         
-            
     def fit(self,X_alg,y_alg):
         
         start_time = time.time()
@@ -162,6 +173,12 @@ class BayesOpt:
                       (i, self.y_inc[i],acq_cand,self.sigma_f_vec[i]))
                 
             self.acq_vec[i] = acq_cand
+            
+            if self.save_iter is not None:
+                if (i+1)%self.save_iter == 0:
+                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    with open(fname,"wb") as f:
+                        pickle.dump(self,f)
                         
             if i < self.max_iter:
                 
