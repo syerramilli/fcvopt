@@ -106,9 +106,10 @@ class BayesOpt:
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                 self.param_bounds[:,1],self.rng)
             self.folds = [ind for ind in self.cv.split(X_alg)]
+            self.fold_index = self.rng.randint(0,high=self.cv.n_splits)
             for i in np.arange(self.n_init):
-                tmp1,tmp2 = self._fold_eval(self.X[i,:],
-                                            np.arange(self.cv.n_splits),
+                tmp1,tmp2 = self._fold_eval(self.X[i,:],self.fold_index,
+                                            #np.arange(self.cv.n_splits),
                                             X_alg,y_alg,True)
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
@@ -183,8 +184,8 @@ class BayesOpt:
             if i < self.max_iter:
                 
                 # evaluate candidate
-                y_cand,time_cand = self._fold_eval(x_cand,
-                                                   np.arange(self.cv.n_splits),
+                y_cand,time_cand = self._fold_eval(x_cand,self.fold_index,
+                                                   #np.arange(self.cv.n_splits),
                                                    X_alg,y_alg,True)
                 
                 # append observations
