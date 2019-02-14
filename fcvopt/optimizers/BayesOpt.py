@@ -106,7 +106,7 @@ class BayesOpt:
             self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                 self.param_bounds[:,1],self.rng)
             self.folds = [ind for ind in self.cv.split(X_alg)]
-            self.fold_index = self.rng.randint(0,high=self.cv.n_splits)
+            self.fold_index = [self.rng.randint(0,high=self.cv.n_splits)]
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],self.fold_index,
                                             #np.arange(self.cv.n_splits),
