@@ -4,12 +4,13 @@ import warnings
 
 from copy import deepcopy
 from scipy.linalg import block_diag
-from scipy.linalg import cholesky,solve_triangular,cho_solve
+from scipy.linalg import cholesky,cho_solve
 from sklearn.base import clone
 from sklearn.utils.validation import check_array
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
+from fcvopt.util.gp_utils import kernel_inv
 from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.util.preprocess import standardize_vec
 from fcvopt.priors.model_priors import AGPPrior
@@ -30,21 +31,7 @@ class AGP:
         self.U = U
         self.P = P                 
         self.eps = eps
-        
-    def _kernel_inv(self,kernel,X,det=True):
-        K = kernel(X)
-        K[np.diag_indices_from(K)] += self.eps
-        L = cholesky(K, lower=True)  # Line 2
-        
-        L_inv = solve_triangular(L,np.eye(L.shape[0]),lower=True)
-        K_inv = L_inv.T.dot(L_inv)
-        
-        if det:
-            ldet_K = 2*np.sum(np.log(np.diag(L)))
-            return K_inv,ldet_K
-        else:
-            return K_inv
-        
+
     def fit(self, theta):
         
         if theta is None:
@@ -59,7 +46,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv = self._kernel_inv(self.k1_,self.X_train,False)
+            Sigma_n_inv = kernel_inv(self.k1_,self.X_train,False)
         except np.linalg.LinAlgError:
             raise
         
@@ -67,7 +54,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp = self._kernel_inv(self.k2_,self.X_list[k],False)
+                tmp = kernel_inv(self.k2_,self.X_list[k],False)
             except np.linalg.LinAlgError:
                 raise
             Ainv[k] = tmp
@@ -179,7 +166,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv,ldet_K = self._kernel_inv(k1_,self.X_train,True)
+            Sigma_n_inv,ldet_K = kernel_inv(k1_,self.X_train,True)
         except np.linalg.LinAlgError:
             return -np.inf
         
@@ -187,7 +174,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp,tmp2 = self._kernel_inv(k2_,self.X_list[k],True)
+                tmp,tmp2 = kernel_inv(k2_,self.X_list[k],True)
             except np.linalg.LinAlgError:
                 return -np.inf
             Ainv[k] = tmp
