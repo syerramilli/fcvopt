@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import numpy as np
 import time
 import os
@@ -9,8 +7,7 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
 from fcvopt.models.gp import GPMCMC
-from fcvopt.acquisition.lcb import LCB
-#from fcvopt.acquisition.improvement import ImprovLCBMCMC
+from fcvopt.acquisition import LCB
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
 from fcvopt.util.preprocess import zero_one_scale
