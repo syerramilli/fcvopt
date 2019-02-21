@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import numpy as np
 import emcee
 import warnings
@@ -319,21 +317,6 @@ class AGPMCMC:
         else:
             return y_mean
         
-    def _predict_diff(self,x1,x2,scaled=True):
-        X = np.row_stack((x1,x2))
-        
-        if not scaled:
-            X,_,_ = zero_one_scale(X,self.lower,self.upper)
-            
-        y_mean = []
-        y_var = []
-        for model in self.models:
-            y_m,y_cov = model.predict(X,return_std=False,return_cov=True)
-            y_mean.append((y_m[0]-y_m[1])*self.y_scale)
-            y_var.append(np.max([np.trace(y_cov)-2*y_cov[0,1],0])*self.y_scale**2)
-        
-        return np.mean(y_m),np.sqrt(np.mean(y_var)+np.var(y_m))
-        
     def get_incumbent(self):
         y_mean = self.predict(self.X_train,scaled=True,return_std=False)
         inc_index = np.argmin(y_mean)
@@ -369,9 +352,3 @@ class AGPMCMC:
             msp.append(np.mean(msp_vec[i]))
                                       
         return msp
-
-        
-        
-        
-        
-        

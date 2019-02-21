@@ -10,7 +10,6 @@ from sklearn.metrics import log_loss
 
 from fcvopt.models.agp import AGPMCMC
 from fcvopt.acquisition.lcb import LCB
-#from fcvopt.acquisition.improvement import ImprovLCBMCMC
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
 from fcvopt.util.preprocess import zero_one_scale
