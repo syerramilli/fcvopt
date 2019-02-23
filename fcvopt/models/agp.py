@@ -246,7 +246,7 @@ class AGPMCMC:
           
         # initialize GP
         self.gp = AGP(self.kernel,self.X_train,X_list,self.y_train,U,P)
-        self.prior = AGPPrior(X.shape[1],0.1,self.rng)
+        self.prior = AGPPrior(X.shape[1],self.rng)
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,

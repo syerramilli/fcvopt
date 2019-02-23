@@ -9,7 +9,7 @@ class GPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.1)*np.ones((n_ls,))
+        lower = np.log(0.01)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
@@ -33,7 +33,7 @@ class GPPrior:
     
     
 class AGPPrior:
-    def __init__(self,n_ls,hs_scale,rng):
+    def __init__(self,n_ls,rng):
         
         # length-scales
         self.n_ls = n_ls
@@ -44,11 +44,11 @@ class AGPPrior:
         
         # variance terms
         self.var_prior = NormalPrior(0,1,rng)
-        self.rho_prior = BetaPrior(18,2,rng)
-        self.rho2_prior = BetaPrior(2,2,rng)
+        self.rho_prior = UniformPrior(0.5,1,rng)
+        self.rho2_prior = BetaPrior(1,1,rng)
         
         # noise prior
-        self.noise_prior = HorseshoePrior(hs_scale,rng)
+        self.noise_prior = HorseshoePrior(1,rng)
         
     def lnpdf(self,theta):
         log_p  = self.ls_prior.lnpdf(theta[0:self.n_ls])
