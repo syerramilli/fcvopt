@@ -115,7 +115,8 @@ class FCVOpt:
                 self.eval_time.append(tmp2)
                 
             self.gp = AGPMCMC(self.kernel,self.param_bounds[:,0],
-                              self.param_bounds[:,1],rng=self.rng)
+                              self.param_bounds[:,1],n_hypers=30,
+                              chain_length=10,rng=self.rng)
             self.acq = None
             self.term = None
             

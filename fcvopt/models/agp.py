@@ -16,7 +16,7 @@ from fcvopt.util.preprocess import standardize_vec
 from fcvopt.priors.model_priors import AGPPrior
 
 class AGP:
-    def __init__(self,kernel,X,X_list,y,U,P,eps=1e-08):
+    def __init__(self,kernel,X,X_list,y,U,P,eps=1e-8):
         self.n_dim = X.shape[1]
         if kernel == "gaussian":
             kernel_ls= RBF(np.ones(self.n_dim))
@@ -46,7 +46,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv = kernel_inv(self.k1_,self.X_train,False)
+            Sigma_n_inv = kernel_inv(self.k1_,self.X_train,self.eps,False)
         except np.linalg.LinAlgError:
             raise
         
@@ -54,7 +54,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp = kernel_inv(self.k2_,self.X_list[k],False)
+                tmp = kernel_inv(self.k2_,self.X_list[k],self.eps,False)
             except np.linalg.LinAlgError:
                 raise
             Ainv[k] = tmp
@@ -166,7 +166,7 @@ class AGP:
         # Precompute quantities required for predictions which are independent
         # of actual query points
         try:
-            Sigma_n_inv,ldet_K = kernel_inv(k1_,self.X_train,True)
+            Sigma_n_inv,ldet_K = kernel_inv(k1_,self.X_train,self.eps,True)
         except np.linalg.LinAlgError:
             return -np.inf
         
@@ -174,7 +174,7 @@ class AGP:
         Ainv = [None]*n_folds
         for k in range(n_folds):
             try:
-                tmp,tmp2 = kernel_inv(k2_,self.X_list[k],True)
+                tmp,tmp2 = kernel_inv(k2_,self.X_list[k],self.eps,True)
             except np.linalg.LinAlgError:
                 return -np.inf
             Ainv[k] = tmp
