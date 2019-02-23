@@ -100,8 +100,12 @@ class BayesOpt:
         start_time = time.time()
         if self.gp is None:
             n_dim = self.param_bounds.shape[0]
-            self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
-                                self.param_bounds[:,1],self.rng)
+            if type(self.n_init) is int:
+                self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
+                                    self.param_bounds[:,1],self.rng)
+            else:
+                self.X = self.n_init
+                self.n_init = self.X.shape[0]
             self.folds = [ind for ind in self.cv.split(X_alg)]
             #self.fold_index = [self.rng.randint(0,high=self.cv.n_splits)]
             self.fold_index = [fold_index]
