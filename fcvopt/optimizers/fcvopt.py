@@ -107,6 +107,11 @@ class FCVOpt:
             else:
                 self.X = self.n_init
                 self.n_init = self.X.shape[0]
+                
+            if len(self.integer) > 0:
+                    for j in self.integer:
+                        self.X[:,j] = np.round(self.X[:,j])
+                        
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
                                                   size=3,replace=False),
@@ -172,6 +177,10 @@ class FCVOpt:
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+            # taking care of integer-valued hyper-parameters
+            if len(self.integer) > 0:
+                for j in self.integer:
+                    x_cand[j] = np.round(x_cand[j])
             
             dist_cand = np.sum(((self.X-x_cand)/(self.gp.upper-self.gp.lower))**2,
                                axis=1)
