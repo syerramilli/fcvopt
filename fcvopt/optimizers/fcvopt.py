@@ -15,7 +15,7 @@ from fcvopt.util.wrappers import scipy_minimize
 from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
-    def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
+    def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
                  integer=[],return_prob=None,kernel="matern",
                  n_init=4,max_iter=10,verbose=0,seed=None,save_iter=10,
                  save_dir=None):
@@ -34,10 +34,9 @@ class FCVOpt:
             self.return_prob = return_prob
         
         self.rng = np.random.RandomState(seed=seed)
-        if type(cv) is int:
-            self.cv = KFold(n_splits=cv,shuffle=True,random_state=self.rng)
-        else:
-            self.cv = cv
+        self.cv = KFold(n_splits=n_folds,shuffle=True,random_state=self.rng)
+        self.n_folds = n_folds
+        
             
         if hasattr(self.estimator,"random_state"):
             self.estimator.random_state = self.rng
@@ -114,8 +113,10 @@ class FCVOpt:
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
-                                                  size=3,replace=False),
+                                                  size=1,replace=False),
                                   reps=(self.n_init,1)).tolist()
+#            self.f_list = self.rng.randint(0,self.cv.n_splits,
+#                                           self.n_init)[:,np.newaxis].tolist()
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
@@ -173,7 +174,7 @@ class FCVOpt:
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
                                              rng = self.rng,
-                                             n_restarts=10)
+                                             n_restarts=9)
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
@@ -181,16 +182,18 @@ class FCVOpt:
             if len(self.integer) > 0:
                 for j in self.integer:
                     x_cand[j] = np.round(x_cand[j])
+                acq_cand = self.acq(x_cand)
             
             dist_cand = np.sum(((self.X-x_cand)/(self.gp.upper-self.gp.lower))**2,
                                axis=1)
             
             new_point = 1 
-            point_index = np.argwhere(dist_cand<=1e-3)
+            point_index = np.argwhere(dist_cand<=1e-4)
             if len(point_index) !=0 :
                 point_index = point_index[0,0]
                 new_point = 0
                 x_cand = self.X[point_index,:].copy()
+                acq_cand = self.acq(x_cand,scaled=False)
             
             if self.verbose >= 2:
                 if i%10==0:
@@ -198,7 +201,7 @@ class FCVOpt:
                     print(output_header)
                 print('%6i %3.3e %3.3e %3.3e' %\
                       (i, self.y_inc[i],acq_cand,self.sigma_f_vec[i]))
-                
+            
             self.acq_vec[i] = acq_cand
             
             if self.save_iter is not None:
@@ -256,14 +259,20 @@ class FCVOpt:
         return results
     
     def _fold_pick(self,x_cand,new_point,point_index,n_alg):
-        f_set = np.arange(len(self.folds))
+        f_set = np.arange(self.cv.n_splits)
         if not new_point:
             f_set = np.setdiff1d(f_set,self.f_list[point_index])
             if len(f_set)==1:
                 return [f_set[0]]
             elif len(f_set)==0:
-                f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
-                self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
+                if len(self.f_list[point_index]) % self.cv.n_splits == 0:
+                    # generate new partition
+                    f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
+                    self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
+                else:
+                    f_set = np.setdiff1d(np.arange(len(self.folds)),
+                                         self.f_list[point_index])
+                    f_cand = self.rng.choice(f_set,1)[0]
                 return [f_cand]
                 
         f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]

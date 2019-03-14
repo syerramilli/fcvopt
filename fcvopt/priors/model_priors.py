@@ -44,8 +44,8 @@ class AGPPrior:
         
         # variance terms
         self.var_prior = NormalPrior(0,1,rng)
-        self.rho_prior = UniformPrior(0.5,1,rng)
-        self.rho2_prior = BetaPrior(1,1,rng)
+        self.rho_prior = UniformPrior(0.7,1,rng)
+        self.rho2_prior = UniformPrior(0,1,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(1,rng)
