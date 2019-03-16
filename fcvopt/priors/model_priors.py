@@ -33,26 +33,32 @@ class GPPrior:
     
     
 class AGPPrior:
-    def __init__(self,n_ls,rng):
+    def __init__(self,n_ls,mean,amp,rng):
+        # mean-prior:
+        self.mean_prior = NormalPrior(mean,amp,rng)
         
         # length-scales
         self.n_ls = n_ls
-        #self.lvar = lvar
         lower = np.log(0.1)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # variance terms
-        self.var_prior = NormalPrior(0,1,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
         self.rho_prior = UniformPrior(0.7,1,rng)
         self.rho2_prior = UniformPrior(0,1,rng)
         
         # noise prior
-        self.noise_prior = HorseshoePrior(1,rng)
+        self.noise_prior = HorseshoePrior(amp,rng)
         
     def lnpdf(self,theta):
-        log_p  = self.ls_prior.lnpdf(theta[0:self.n_ls])
+        # mean
+        log_p = self.mean_prior.lnpdf(theta[0])
         
+        # length scales
+        log_p  += self.ls_prior.lnpdf(theta[1:(self.n_ls+1)])
+        
+        # variances - first calulate base quantities
         dev_var = np.sum(np.exp(theta[self.n_ls+1+np.arange(2)]))
         total_var = np.exp(theta[self.n_ls]) + dev_var
         rho = 1-dev_var/total_var
@@ -68,7 +74,9 @@ class AGPPrior:
         return log_p
     
     def sample(self,n_samples):
-        ls_sample    = self.ls_prior.sample(n_samples)
+        mean_sample = self.mean_prior.sample(n_samples)
+        
+        ls_sample = self.ls_prior.sample(n_samples)
         
         total_var_sample   = self.var_prior.sample(n_samples)
         rho_sample = self.rho_prior.sample(n_samples)
@@ -79,6 +87,6 @@ class AGPPrior:
         sigd2_sample = np.log((1-rho2_sample) * (1-rho_sample)) + total_var_sample
         
         noise_sample = self.noise_prior.sample(n_samples)
-        return np.concatenate((ls_sample,sigf_sample,
+        return np.concatenate((mean_sample,ls_sample,sigf_sample,
                                sigd1_sample,sigd2_sample,
                                noise_sample),axis=1)
