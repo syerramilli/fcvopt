@@ -44,7 +44,7 @@ class AGPPrior:
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # variance terms
-        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
         self.rho_prior = UniformPrior(0.7,1,rng)
         self.rho2_prior = UniformPrior(0,1,rng)
         

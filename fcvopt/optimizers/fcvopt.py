@@ -264,7 +264,7 @@ class FCVOpt:
             if len(f_set)==1:
                 return [f_set[0]]
             elif len(f_set)==0:
-                if len(self.f_list[point_index]) % self.cv.n_splits == 0:
+                if len(self.f_list[point_index]) % len(self.folds) == 0:
                     # generate new partition
                     f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
                     self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
