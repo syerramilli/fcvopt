@@ -52,8 +52,7 @@ class AGP:
         self.U = block_diag(*[np.ones((n_rep,1)) for n_rep in n_reps])
         
         X_aug = np.repeat(self.X_train,n_reps,axis=0)
-        n_dim = len(self.lower)
-        self.X_list = [X_aug[np.where(f_full==group)[0],0:n_dim] for group in self.groups]
+        self.X_list = [X_aug[np.where(f_full==group)[0],0:self.n_dim] for group in self.groups]
         
         # kernels involved
         self.n_dim = self.X_train.shape[1]
@@ -72,7 +71,7 @@ class AGP:
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,
-                                        n_dim+5,
+                                        self.n_dim+5,
                                         self.log_posterior)
         sampler.random_state = self.rng.get_state()
         
