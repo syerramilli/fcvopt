@@ -6,7 +6,7 @@ from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
-from fcvopt.models.gp import GPMCMC
+from fcvopt.models.gp import GP
 from fcvopt.acquisition import LCB
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
@@ -15,8 +15,8 @@ from fcvopt.util.preprocess import zero_one_scale
 
 class BayesOpt:
     def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
-                 integer = [],return_prob=None,kernel="matern",n_init=3,
-                 min_iter=5,max_iter=10,verbose=0,seed=None,save_iter=10,
+                 integer = [],return_prob=None,kernel="matern",n_init=4,
+                 min_iter=5,max_iter=10,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -116,8 +116,8 @@ class BayesOpt:
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
                 
-            self.gp = GPMCMC(self.kernel,self.param_bounds[:,0],
-                             self.param_bounds[:,1],rng=self.rng)
+            self.gp = GP(self.kernel,self.param_bounds[:,0],
+                         self.param_bounds[:,1],rng=self.rng)
             self.acq = None
             
             self.X_inc = np.zeros((self.max_iter,n_dim))
@@ -137,12 +137,10 @@ class BayesOpt:
             self.gp.fit(self.X,self.y)
             self.mcmc_time[i] = time.time()-mcmc_start
             
-            self.sigma_f_vec[i] = self.gp.y_scale* \
-                            np.sqrt(np.mean([np.exp(model.kernel_.k1.theta[-1]) \
-                                             for model in self.gp.models]) + \
-                                    np.var([model.mu_hat \
-                                            for model in self.gp.models]))
-            
+            self.sigma_f_vec[i] = \
+                            np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-2]) \
+                                             for i in range(self.gp.n_hypers)]) + \
+                                    np.var(self.gp.mu_))
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
                                        self.param_bounds[:,0],
@@ -163,7 +161,7 @@ class BayesOpt:
                                              np.zeros((n_dim,)),
                                              np.ones((n_dim,)),
                                              rng = self.rng,
-                                             n_restarts=10)
+                                             n_restarts=9)
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
@@ -224,5 +222,3 @@ class BayesOpt:
         
     def term_crit(self):
         return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
-        
-        
