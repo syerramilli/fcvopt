@@ -8,7 +8,7 @@ from sklearn.base import clone
 from sklearn.model_selection import KFold
 from sklearn.metrics import log_loss
 
-from fcvopt.models.agp import AGPMCMC
+from fcvopt.models.agp import AGP
 from fcvopt.acquisition import LCB
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
@@ -124,7 +124,7 @@ class FCVOpt:
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
                 
-            self.gp = AGPMCMC(self.kernel,self.param_bounds[:,0],
+            self.gp = AGP(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],n_hypers=30,
                               chain_length=10,rng=self.rng)
             self.acq = None
@@ -147,11 +147,10 @@ class FCVOpt:
             self.gp.fit(self.X,self.y,self.f_list)
             self.mcmc_time[i] = time.time()-mcmc_start
             
-            self.sigma_f_vec[i] = self.gp.y_scale* \
-                            np.sqrt(np.mean([np.exp(model.k1_.theta[-1]) \
-                                             for model in self.gp.models]) + \
-                                    np.var([model.mu_hat \
-                                            for model in self.gp.models]))
+            self.sigma_f_vec[i] = \
+                            np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-1]) \
+                                             for i in range(self.gp.n_hypers)]) + \
+                                    np.var(self.gp.mu_))
             self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
             x_inc,_,_ = zero_one_scale(self.X_inc[i,:],

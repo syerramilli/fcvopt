@@ -39,7 +39,7 @@ class AGPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.1)*np.ones((n_ls,))
+        lower = np.log(0.05)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
@@ -59,18 +59,18 @@ class AGPPrior:
         log_p  += self.ls_prior.lnpdf(theta[1:(self.n_ls+1)])
         
         # variances - first calulate base quantities
-        dev_var = np.sum(np.exp(theta[self.n_ls+1+np.arange(2)]))
-        total_var = np.exp(theta[self.n_ls]) + dev_var
+        dev_var = np.sum(np.exp(theta[self.n_ls+2+np.arange(2)]))
+        total_var = np.exp(theta[self.n_ls+1]) + dev_var
         rho = 1-dev_var/total_var
-        rho2 = np.exp(theta[self.n_ls+1])/dev_var
+        rho2 = np.exp(theta[self.n_ls+2])/dev_var
         total_var = np.log(total_var)
         
         log_p += self.var_prior.lnpdf(total_var) + self.rho_prior.lnpdf(rho)
         log_p += self.rho2_prior.lnpdf(rho2)
         log_p += - 2*total_var - np.log(1-rho) 
-        log_p += np.sum(theta[self.n_ls+np.arange(3)])
+        log_p += np.sum(theta[self.n_ls+1+np.arange(3)])
         
-        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 3])
+        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 4])
         return log_p
     
     def sample(self,n_samples):
