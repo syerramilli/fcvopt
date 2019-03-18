@@ -40,6 +40,16 @@ class AGP:
         self.y_train = np.array([subitem for item in y_list for subitem in item])
         self.f_list = f_list
         
+        # kernels involved
+        self.n_dim = self.X_train.shape[1]
+        if self.kernel == "gaussian":
+            kernel_ls= RBF(np.ones(self.n_dim))
+        elif self.kernel == "matern":
+            kernel_ls = Matern(np.ones(self.n_dim),nu=2.5)
+            
+        self.k1 = kernel_ls*C(1.0)
+        self.k2 = kernel_ls*C(0.01) + C(0.0001) + WhiteKernel(0.01)
+        
         # create permuation matrix
         f_full = np.array([subitem for item in f_list for subitem in item])
         self.N = f_full.size
@@ -53,16 +63,6 @@ class AGP:
         
         X_aug = np.repeat(self.X_train,n_reps,axis=0)
         self.X_list = [X_aug[np.where(f_full==group)[0],0:self.n_dim] for group in self.groups]
-        
-        # kernels involved
-        self.n_dim = self.X_train.shape[1]
-        if self.kernel == "gaussian":
-            kernel_ls= RBF(np.ones(self.n_dim))
-        elif self.kernel == "matern":
-            kernel_ls = Matern(np.ones(self.n_dim),nu=2.5)
-            
-        self.k1 = kernel_ls*C(1.0)
-        self.k2 = kernel_ls*C(0.01) + C(0.0001) + WhiteKernel(0.01)
           
         # initialize prior
         y_loc = np.mean(self.y_train) # mean
