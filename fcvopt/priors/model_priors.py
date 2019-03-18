@@ -5,31 +5,40 @@ from fcvopt.priors.base_prior import UniformPrior, NormalPrior
 from fcvopt.priors.base_prior import HorseshoePrior, BetaPrior
 
 class GPPrior:
-    def __init__(self,n_ls,hs_scale,rng):
+    def __init__(self,n_ls,mean,amp,rng):
+        # mean-prior:
+        self.mean_prior = NormalPrior(mean,amp,rng)
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.01)*np.ones((n_ls,))
+        lower = np.log(0.05)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
-        self.var_prior = NormalPrior(0,1,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
         
-        # Noise Prior
-        self.noise_prior = HorseshoePrior(hs_scale,rng)
+        # noise prior
+        self.noise_prior = HorseshoePrior(amp,rng)
         
     def lnpdf(self,theta):
-        log_p  = self.ls_prior.lnpdf(theta[0:self.n_ls])
-        log_p += self.var_prior.lnpdf(theta[self.n_ls])
-        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 1])
+        # mean
+        log_p = self.mean_prior.lnpdf(theta[0])
+        # length scales
+        log_p  += self.ls_prior.lnpdf(theta[1:(self.n_ls+1)])
+        # variance
+        log_p += self.var_prior.lnpdf(theta[self.n_ls+1])
+        # noise
+        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 2])
         return log_p
     
     def sample(self,n_samples):
+        mean_sample = self.mean_prior.sample(n_samples)
         ls_sample    = self.ls_prior.sample(n_samples)
         var_sample   = self.var_prior.sample(n_samples)
         noise_sample = self.noise_prior.sample(n_samples)
-        return np.concatenate((ls_sample,var_sample,noise_sample),axis=1)
+        return np.concatenate((mean_sample,ls_sample,var_sample,
+                               noise_sample),axis=1)
     
     
 class AGPPrior:
