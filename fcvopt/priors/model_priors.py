@@ -19,7 +19,7 @@ class GPPrior:
         self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
         
         # noise prior
-        self.noise_prior = HorseshoePrior(amp,rng)
+        self.noise_prior = HorseshoePrior(amp**2,rng)
         
     def lnpdf(self,theta):
         # mean
@@ -58,7 +58,7 @@ class AGPPrior:
         self.rho2_prior = UniformPrior(0,1,rng)
         
         # noise prior
-        self.noise_prior = HorseshoePrior(amp,rng)
+        self.noise_prior = HorseshoePrior(amp**2,rng)
         
     def lnpdf(self,theta):
         # mean
