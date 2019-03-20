@@ -106,6 +106,11 @@ class BayesOpt:
             else:
                 self.X = self.n_init
                 self.n_init = self.X.shape[0]
+                
+            if len(self.integer) > 0:
+                    for j in self.integer:
+                        self.X[:,j] = np.round(self.X[:,j])
+                        
             self.folds = [ind for ind in self.cv.split(X_alg)]
             #self.fold_index = [self.rng.randint(0,high=self.cv.n_splits)]
             self.fold_index = [fold_index]
@@ -165,6 +170,11 @@ class BayesOpt:
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+            # taking care of integer-valued hyper-parameters
+            if len(self.integer) > 0:
+                for j in self.integer:
+                    x_cand[j] = np.round(x_cand[j])
+                acq_cand = self.acq(x_cand)
             
             if self.verbose >= 2:
                 if i%10==0:
