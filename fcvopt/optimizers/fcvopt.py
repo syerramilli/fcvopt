@@ -16,7 +16,7 @@ from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
-                 integer=[],return_prob=None,kernel="matern",
+                 integer=[],return_prob=None,kernel="matern",kappa=2,
                  n_init=4,max_iter=10,verbose=0,seed=None,save_iter=10,
                  save_dir=None):
         self.estimator = estimator
@@ -45,6 +45,7 @@ class FCVOpt:
         self.n_init = n_init
         self.max_iter = max_iter
         self.verbose = verbose
+        self.kappa = kappa
         
         # if saving, then
         self.save_iter = save_iter
@@ -125,7 +126,7 @@ class FCVOpt:
                 self.eval_time.append(tmp2)
                 
             self.gp = AGP(self.kernel,self.param_bounds[:,0],
-                              self.param_bounds[:,1],n_hypers=30,
+                              self.param_bounds[:,1],n_hypers=(n_dim+4)*5,
                               chain_length=10,rng=self.rng)
             self.acq = None
             self.term = None
@@ -157,13 +158,9 @@ class FCVOpt:
                                        self.param_bounds[:,0],
                                        self.param_bounds[:,1])
             
-            if self.logscale is not None:
-                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
-                
-            
             # acquisition function optimization - find candidate
             if self.acq is None:
-                self.acq = LCB(self.gp)
+                self.acq = LCB(self.gp,kappa=self.kappa)
             else:
                 self.acq.update(self.gp)
             
@@ -178,21 +175,30 @@ class FCVOpt:
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
             # taking care of integer-valued hyper-parameters
-            if len(self.integer) > 0:
-                for j in self.integer:
-                    x_cand[j] = np.round(x_cand[j])
-                acq_cand = self.acq(x_cand)
+#            if len(self.integer) > 0:
+#                for j in self.integer:
+#                    x_cand[j] = np.round(x_cand[j])
+#                    
+#                acq_cand = self.acq(x_cand)
+#                # ensuring lower bound on Ef(x_inc)
+#                acq_inc = self.acq(x_inc)
+#                if acq_inc < acq_cand:
+#                    x_cand = self.X_inc[i,:].copy()
+#                    acq_cand = acq_inc
             
-            dist_cand = np.sum(((self.X-x_cand)/(self.gp.upper-self.gp.lower))**2,
+            dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
             
             new_point = 1 
-            point_index = np.argwhere(dist_cand<=1e-4)
+            point_index = np.argwhere(dist_cand<=1e-2)
             if len(point_index) !=0 :
                 point_index = point_index[0,0]
                 new_point = 0
                 x_cand = self.X[point_index,:].copy()
                 acq_cand = self.acq(x_cand,scaled=False)
+            
+            if self.logscale is not None:
+                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
             
             if self.verbose >= 2:
                 if i%10==0:
