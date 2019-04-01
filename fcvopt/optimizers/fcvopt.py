@@ -6,7 +6,6 @@ import time
 import pickle
 from sklearn.base import clone
 from sklearn.model_selection import KFold
-from sklearn.metrics import log_loss
 
 from fcvopt.models.agp import AGP
 from fcvopt.acquisition import LCB
@@ -16,7 +15,7 @@ from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
-                 integer=[],return_prob=None,kernel="matern",kappa=2,
+                 integer=[],return_prob=False,kernel="matern",kappa=2,
                  n_init=4,max_iter=10,verbose=0,seed=None,save_iter=10,
                  save_dir=None):
         self.estimator = estimator
@@ -27,11 +26,7 @@ class FCVOpt:
         self.logscale = logscale
         self.integer = integer
         self.metric = metric
-        
-        if return_prob is None:
-            self.return_prob = True if self.metric is log_loss else False
-        else:
-            self.return_prob = return_prob
+        self.return_prob = return_prob
         
         self.rng = np.random.RandomState(seed=seed)
         self.cv = KFold(n_splits=n_folds,shuffle=True,random_state=self.rng)
@@ -175,17 +170,6 @@ class FCVOpt:
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
-            # taking care of integer-valued hyper-parameters
-#            if len(self.integer) > 0:
-#                for j in self.integer:
-#                    x_cand[j] = np.round(x_cand[j])
-#                    
-#                acq_cand = self.acq(x_cand)
-#                # ensuring lower bound on Ef(x_inc)
-#                acq_inc = self.acq(x_inc)
-#                if acq_inc < acq_cand:
-#                    x_cand = self.X_inc[i,:].copy()
-#                    acq_cand = acq_inc
             
             dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
