@@ -14,9 +14,9 @@ from fcvopt.util.preprocess import zero_one_scale
 
 
 class BayesOpt:
-    def __init__(self,estimator,param_bounds,metric,cv=10,logscale=None,
-                 integer = [],return_prob=None,kernel="matern",n_init=4,
-                 min_iter=5,max_iter=10,verbose=0,seed=None,save_iter=None,
+    def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
+                 integer = [],return_prob=False,kernel="matern",kappa=2,
+                 n_init=4,max_iter=10,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -26,26 +26,20 @@ class BayesOpt:
         self.logscale = logscale
         self.integer = integer
         self.metric = metric
-        
-        if return_prob is None:
-            self.return_prob = True if self.metric is log_loss else False
-        else:
-            self.return_prob = return_prob
+        self.return_prob = return_prob
         
         self.rng = np.random.RandomState(seed=seed)
-        if type(cv) is int:
-            self.cv = KFold(n_splits=cv,shuffle=True,random_state=self.rng)
-        else:
-            self.cv = cv
+        self.cv = KFold(n_splits=n_folds,shuffle=True,random_state=self.rng)
+        self.n_folds = n_folds
             
         if hasattr(self.estimator,"random_state"):
             self.estimator.random_state = self.rng
         
         self.kernel = kernel
         self.n_init = n_init
-        self.min_iter = min_iter
         self.max_iter = max_iter
         self.verbose = verbose
+        self.kappa = kappa
         
         # if saving, then
         self.save_iter = save_iter
@@ -95,7 +89,7 @@ class BayesOpt:
         else:
             return y_eval,time_eval
         
-    def fit(self,X_alg,y_alg,fold_index):
+    def fit(self,X_alg,y_alg,fold_index=None):
         
         start_time = time.time()
         if self.gp is None:
@@ -112,17 +106,22 @@ class BayesOpt:
                         self.X[:,j] = np.round(self.X[:,j])
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
-            #self.fold_index = [self.rng.randint(0,high=self.cv.n_splits)]
-            self.fold_index = [fold_index]
+            # evaluate all folds
+            if fold_index is None:
+                self.fold_index = np.arange(self.n_folds)
+            else:
+                self.fold_index = [fold_index]
+                
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],self.fold_index,
-                                            #np.arange(self.cv.n_splits),
                                             X_alg,y_alg,True)
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
                 
             self.gp = GP(self.kernel,self.param_bounds[:,0],
-                         self.param_bounds[:,1],rng=self.rng)
+                         self.param_bounds[:,1],
+                         n_hypers=(n_dim+4)*5//2*2,
+                         chain_length=10,rng=self.rng)
             self.acq = None
             
             self.X_inc = np.zeros((self.max_iter,n_dim))
@@ -156,7 +155,7 @@ class BayesOpt:
             
             # acquisition function optimization - find candidate
             if self.acq is None:
-                self.acq = LCB(self.gp)
+                self.acq = LCB(self.gp,self.kappa)
             else:
                 self.acq.update(self.gp)
             
@@ -170,11 +169,6 @@ class BayesOpt:
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
-            # taking care of integer-valued hyper-parameters
-            if len(self.integer) > 0:
-                for j in self.integer:
-                    x_cand[j] = np.round(x_cand[j])
-                acq_cand = self.acq(x_cand)
             
             if self.verbose >= 2:
                 if i%10==0:
@@ -195,7 +189,6 @@ class BayesOpt:
                 
                 # evaluate candidate
                 y_cand,time_cand = self._fold_eval(x_cand,self.fold_index,
-                                                   #np.arange(self.cv.n_splits),
                                                    X_alg,y_alg,True)
                 
                 # append observations
