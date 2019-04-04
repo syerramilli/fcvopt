@@ -4,7 +4,7 @@ from scipy.linalg import cholesky,solve_triangular
 def kernel_inv(kernel,X,eps,det=True):
     K = kernel(X)
     K[np.diag_indices_from(K)] += eps*K[0,0]
-    L = cholesky(K, lower=True)  # Line 2
+    L = cholesky(K, lower=True)
     
     L_inv = solve_triangular(L,np.eye(L.shape[0]),lower=True)
     K_inv = L_inv.T.dot(L_inv)

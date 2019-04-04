@@ -103,9 +103,9 @@ class FCVOpt:
                 self.X = self.n_init
                 self.n_init = self.X.shape[0]
                 
-            if len(self.integer) > 0:
-                    for j in self.integer:
-                        self.X[:,j] = np.round(self.X[:,j])
+#            if len(self.integer) > 0:
+#                    for j in self.integer:
+#                        self.X[:,j] = np.round(self.X[:,j])
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
@@ -175,7 +175,7 @@ class FCVOpt:
                                axis=1)
             
             new_point = 1 
-            point_index = np.argwhere(dist_cand<=1e-2)
+            point_index = np.argwhere(dist_cand<=5e-2)
             if len(point_index) !=0 :
                 point_index = point_index[0,0]
                 new_point = 0
