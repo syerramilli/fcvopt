@@ -104,9 +104,9 @@ class AGP:
     def _return_kernels(self,theta):
         mu_ = theta[0]
         k1_ = self.k1.clone_with_theta(theta[np.arange(1,self.n_dim+2)])
-        k2_params = np.append(np.arange(self.n_dim),
-                              self.n_dim+np.arange(2,5))
-        k2_ = self.k2.clone_with_theta(theta[k2_params])
+        k2_params = theta[np.append(1+np.arange(self.n_dim),
+                                    self.n_dim+np.arange(2,5))]
+        k2_ = self.k2.clone_with_theta(k2_params)
         
         return mu_,k1_,k2_
         
