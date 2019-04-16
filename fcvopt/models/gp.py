@@ -11,7 +11,8 @@ from fcvopt.priors.model_priors import GPPrior
 
 class GP:
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 10,burnin_length=150,rng=None):
+                 chain_length = 10,burnin_length=150,
+                 prior=None,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
@@ -24,7 +25,7 @@ class GP:
         self.chain_length = chain_length
         self.burnin_length = burnin_length
         
-        self.prior = None
+        self.prior = prior
         self.X_train = None
         self.y = None
         self.burned = False
@@ -51,7 +52,8 @@ class GP:
         # initialize prior
         y_loc = np.mean(self.y_train) # mean
         y_scale = np.std(self.y_train) # std dev
-        self.prior = GPPrior(self.n_dim,y_loc,y_scale,self.rng)
+        if self.prior is None:
+            self.prior = GPPrior(self.n_dim,y_loc,y_scale,self.rng)
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,

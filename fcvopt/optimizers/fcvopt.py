@@ -123,7 +123,7 @@ class FCVOpt:
             self.gp = AGP(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],
                               n_hypers=(n_dim+4)*5//2*2,
-                              chain_length=10,rng=self.rng)
+                              chain_length=100,rng=self.rng)
             self.acq = None
             self.term = None
             
