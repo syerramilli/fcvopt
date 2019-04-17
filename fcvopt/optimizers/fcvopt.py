@@ -140,6 +140,10 @@ class FCVOpt:
                     ('iter', 'f_best', 'acq_best',"sigma_f")
         
         for i in range(self.max_iter):
+            
+            if i > 10:
+                self.gp.chain_length = 10
+            
             mcmc_start = time.time()
             self.gp.fit(self.X,self.y,self.f_list)
             self.mcmc_time[i] = time.time()-mcmc_start
