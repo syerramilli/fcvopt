@@ -123,7 +123,7 @@ class FCVOpt:
             self.gp = AGP(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],
                               n_hypers=(n_dim+4)*5//2*2,
-                              chain_length=40,rng=self.rng)
+                              chain_length=50,rng=self.rng)
             self.acq = None
             self.term = None
             
@@ -141,7 +141,7 @@ class FCVOpt:
         
         for i in range(self.max_iter):
             
-            if i > 10:
+            if i >= 20:
                 self.gp.chain_length = 10
             
             mcmc_start = time.time()
@@ -152,7 +152,7 @@ class FCVOpt:
                             np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-1]) \
                                              for i in range(self.gp.n_hypers)]) + \
                                     np.var(self.gp.mu_))
-            self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
+            self.X_inc[i,:],self.y_inc[i],_ = self.gp.get_incumbent()
             
             x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
                                        self.param_bounds[:,0],
@@ -174,14 +174,13 @@ class FCVOpt:
             self.acq_time[i] = time.time()-acq_start
             
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
-            
             dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
+
+            new_point = 1
+            point_index = np.argmin(dist_cand)
             
-            new_point = 1 
-            point_index = np.argwhere(dist_cand<=5e-2)
-            if len(point_index) !=0 :
-                point_index = point_index[0,0]
+            if dist_cand[point_index]/n_dim <= 1e-2:
                 new_point = 0
                 x_cand = self.X[point_index,:].copy()
                 acq_cand = self.acq(x_cand,scaled=False)
@@ -204,7 +203,7 @@ class FCVOpt:
                     with open(fname,"wb") as f:
                         pickle.dump(self,f)
                         
-            if i < self.max_iter:
+            if i < self.max_iter-1:
                 # pick fold to evaluate
                 f_cand = self._fold_pick(x_cand,new_point,point_index,
                                          X_alg.shape[0])

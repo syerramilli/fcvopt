@@ -255,7 +255,7 @@ class AGP:
         inc_index = np.argmin(y_mean)
         X_inc = zero_one_rescale(self.X_train[inc_index,:].copy(),
                                  self.lower,self.upper)
-        return X_inc,y_mean[inc_index]
+        return X_inc,y_mean[inc_index], inc_index
     
     def _fold_var(self,x,fold_ids):
         x_copy = np.array(x).reshape(1,-1)
