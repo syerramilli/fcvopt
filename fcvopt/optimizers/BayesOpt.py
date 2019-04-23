@@ -185,7 +185,7 @@ class BayesOpt:
                     with open(fname,"wb") as f:
                         pickle.dump(self,f)
                         
-            if i < self.max_iter:
+            if i < self.max_iter-1:
                 
                 # evaluate candidate
                 y_cand,time_cand = self._fold_eval(x_cand,self.fold_index,
