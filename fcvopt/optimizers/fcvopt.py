@@ -16,7 +16,7 @@ from fcvopt.util.preprocess import zero_one_scale
 class FCVOpt:
     def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
                  integer=[],return_prob=False,kernel="matern",kappa=2,
-                 n_init=4,max_iter=10,verbose=0,seed=None,save_iter=10,
+                 n_init=4,max_iter=10,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -141,7 +141,7 @@ class FCVOpt:
         
         for i in range(self.max_iter):
             
-            if i >= 20:
+            if i >= 30:
                 self.gp.chain_length = 10
             
             mcmc_start = time.time()
