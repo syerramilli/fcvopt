@@ -10,11 +10,85 @@ from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.priors.model_priors import GPPrior
 
 class GP:
+    """
+    Gaussian process regression (GPR)
+    
+    Parameters
+    -------------
+    kernel: string
+        Name of the kernel. Current options are "gaussian" (Gaussian or 
+        RBF Kernel) and "matern" (Matern 5/2 kernel). These kernels are 
+        implemented in scikit-learn
+        
+    lower: array-like, shape = (n_features,)
+        Lower bound on the inpute space used for scaling to the 0-1 hypercube
+    
+    upper: array-like, shape = (n_features,)
+        Upper bound on the features used for scaling to the 0-1 hypercube
+    
+    n_hypers: int, optional (default:30)
+        Number of 
+        
+    chain_length: int, optional (default:100)
+    
+    burnin_length: int, optional (default:150)
+    
+    prior: object, optional (default: None)
+        Prior on the GP hyper-parametes. Uses GPPrior class if nothing
+        is specifed. Check the documentation on GPPrior for the 
+        required methods.
+        
+    rng: int, RandomState instance or None, optional (default: None)
+        The generators used to intialize the MCMC samples. If int, random_state is
+        the seed used by the random number generator; If RandomState instance,
+        random_state is the random number generator; If None, the random number
+        generator is the RandomState instance used by `np.random`.
+    
+    Attributes
+    -------------
+    X_train: array, shape = (n_samples,n_features):
+        Feature values in training data (scaled to the 0-1 hypercube)
+        
+    y_train : array, shape = (n_samples,)
+        Target values in training data 
+        
+    k1: kernel object 
+        The kernel with the specified structure (not used for prediction)
+        
+    prior:
+        The prior on the GP hyper-parameters
+    
+    mu_: array, shape =(n_hypers)
+        Samples from the posterior distribution on the mean
+        
+    hypers: array, shape = (n_hypers,n_features+3)
+        Hyper-parameter samples from the posterior. Includes the mean,
+        length-scales, amplitude, and the noise variance. All 
+        hyper-parameters except the mean are in log-scale
+        
+    k1_: list, length = n_hypers
+        List of kernel objects, each of which correspond to the samples
+        in hypers
+        
+    Kinv_: list, length = n_hypers
+        List of inverse covariance kernel in ``X_train`` corresponding to
+        the samples in hypers. Shape of each array is (n_samples,n_samples)
+        
+    Kinv_y_: list, length = n_hypers
+        List of dot-products of the invariance covariance kernels
+        corresponding to the samples in hypers and `y_train`. 
+        (Used for prediction)
+        
+    p0: array-like, shape = (n_hypers,n_features+3)
+        Last-state of the MCMC chain
+    """
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 10,burnin_length=150,
+                 chain_length = 100,burnin_length=150,
                  prior=None,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
+        elif type(rng) is int:
+            self.rng = np.random.RandomState(rng)
         else:
             self.rng = rng
         
@@ -92,6 +166,19 @@ class GP:
         return mu_,k1_
         
     def log_likelihood(self,theta):
+        '''
+        Returns the unnormalized log-likelhood of theta for training data
+        
+        Parameters
+        -----------
+        theta: array, shape = (n_dim+3,)
+            Kernel hyperparameters for which the log-likelihood is computed
+            
+        Returns
+        ----------
+        log_posterior: float
+            Unnormalized log-likelihood of theta for training data
+        '''
         # new kernels
         mu_,k1_ = self._return_kernels(theta)
             
@@ -108,6 +195,20 @@ class GP:
         return log_likelihood
     
     def log_posterior(self,theta):
+        '''
+        Returns the unnormalized log-posterior of theta for training data
+        
+        Parameters
+        -----------
+        theta: array, shape = (n_dim+3,)
+            Kernel hyperparameters for which the (unnormalized) 
+            log-posterior is computed
+            
+        Returns
+        ----------
+        log_posterior: float
+            Unnormalized log-posterior of theta for training data
+        '''
         if np.any(theta<-15) or np.any(theta>15):
             return -np.inf
         log_lik = self.log_likelihood(theta)
@@ -139,6 +240,30 @@ class GP:
         return k1_,Kinv,Kinv_y
     
     def predict(self,X,scaled=False,return_std=True):
+        """
+        Returns the predictive mean and variance at the given points. 
+        Requires model to be fit.
+        
+        Parameters
+        -----------
+        X: array-like, shape = (N,n_dim)
+            Query points
+        scaled: bool, optional (default:False)
+            Flag indicating whether the supplied points have been 
+            scaled to the 0-1 hypercube
+        return_std: bool, optional (default:True)
+            If True, the standard-deviation of the predictive distribution at
+            the query points is returned along with the mean.
+        
+        Returns
+        ----------
+        y_mean: array, shape = (N,)
+            Mean of the predictive distribution at the query points
+        
+        y_std: array, shape = (N,) optional
+            Standard deviation of the predictive distribution at the query 
+            points. Returned only when return_std = True.
+        """
         if type(X) is not np.ndarray or X.ndim==1:
             X_copy = np.array(X).reshape(1,-1)
         else:
@@ -189,6 +314,16 @@ class GP:
             return y_mean
         
     def get_incumbent(self):
+        """
+        Returns the observed minima and its predicted value
+        
+        Returns
+        ----------
+        x_inc: array (n_dim,):
+            observed minima
+        y_inc: float
+            predicted value at the minima
+        """
         y_mean = self.predict(self.X_train,scaled=True,return_std=False)
         inc_index = np.argmin(y_mean)
         X_inc = zero_one_rescale(self.X_train[inc_index,:].copy(),
