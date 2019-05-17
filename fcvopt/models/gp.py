@@ -88,7 +88,7 @@ class GP:
         corresponding to the samples in hypers and `y_train`. 
         (Used for prediction)
         
-    p0: array-like, shape = (n_hypers,n_features+3)
+    p0: array, shape = (n_hypers,n_features+3)
         Last-state of the MCMC chain
     
     """
@@ -122,21 +122,21 @@ class GP:
         
         Parameters
         -----------
-        X: array, shape = (N,n_dim)
+        X: array, shape = (n_samples,n_dim)
             Input data. 
         
-        y: array, shape = (N,)
+        y: array, shape = (n_samples,)
             Corresponding target values
         
         '''
-        # data
+        # data - appropriate transformations
         self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
         if type(y) is list:
             self.y_train = np.array(y)
         else:
             self.y_train = y
         
-        # kernels involved
+        # define kernel structure 
         self.n_dim = self.X_train.shape[1]
         if self.kernel == "gaussian":
             kernel_ls= RBF(np.ones(self.n_dim))
@@ -157,6 +157,7 @@ class GP:
                                         self.log_posterior)
         sampler.random_state = self.rng.get_state()
         
+        # Perform MCMC sampling
         if not self.burned:
             self.p0 = self.prior.sample(self.n_hypers)
             
@@ -168,7 +169,7 @@ class GP:
         self.p0 = pos
         self.hypers = sampler.chain[:, -1]
         
-        # 'fit' models
+        # 'fit' GP models for each hyperparameter sample
         self.mu_ = self.hypers[:,0]
         self.k1_ = []
         self.Kinv_ = []
