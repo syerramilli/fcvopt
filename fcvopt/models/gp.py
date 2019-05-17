@@ -11,7 +11,8 @@ from fcvopt.priors.model_priors import GPPrior
 
 class GP:
     """
-    Gaussian process regression (GPR)
+    Gaussian process model that uses MCMC sampling to marginalize over
+    the hyper-parameters. 
     
     Parameters
     -------------
@@ -20,18 +21,22 @@ class GP:
         RBF Kernel) and "matern" (Matern 5/2 kernel). These kernels are 
         implemented in scikit-learn
         
-    lower: array-like, shape = (n_features,)
+    lower: array-like, shape = (n_dim,)
         Lower bound on the inpute space used for scaling to the 0-1 hypercube
     
-    upper: array-like, shape = (n_features,)
+    upper: array-like, shape = (n_dim,)
         Upper bound on the features used for scaling to the 0-1 hypercube
     
     n_hypers: int, optional (default:30)
-        Number of 
+         The number of hyperparameter samples. This is also the determine
+         the number of walkers for MCMC sampling. 
         
     chain_length: int, optional (default:100)
+        The number of MCMC steps. The walkers in the last step will be 
+        used as the hyperparameter samples.
     
     burnin_length: int, optional (default:150)
+        The number of burnin steps before the actual MCMC sampling begins
     
     prior: object, optional (default: None)
         Prior on the GP hyper-parametes. Uses GPPrior class if nothing
@@ -46,7 +51,7 @@ class GP:
     
     Attributes
     -------------
-    X_train: array, shape = (n_samples,n_features):
+    X_train: array, shape = (n_samples,n_dim):
         Feature values in training data (scaled to the 0-1 hypercube)
         
     y_train : array, shape = (n_samples,)
@@ -56,15 +61,19 @@ class GP:
         The kernel with the specified structure (not used for prediction)
         
     prior:
-        The prior on the GP hyper-parameters
+        The prior on the GP hyperparameters
+        
+    burned: bool
+        Indicates whether burning has been performed. False before 
+        the fit method is used
     
-    mu_: array, shape =(n_hypers)
-        Samples from the posterior distribution on the mean
+    mu_: array, shape = (n_hypers,)
+        Samples from the posterior distribution on the GP mean
         
     hypers: array, shape = (n_hypers,n_features+3)
-        Hyper-parameter samples from the posterior. Includes the mean,
+        Hyperparameter samples from the posterior. Includes the mean,
         length-scales, amplitude, and the noise variance. All 
-        hyper-parameters except the mean are in log-scale
+        hyperparameters except the mean are in log-scale
         
     k1_: list, length = n_hypers
         List of kernel objects, each of which correspond to the samples
@@ -81,6 +90,7 @@ class GP:
         
     p0: array-like, shape = (n_hypers,n_features+3)
         Last-state of the MCMC chain
+    
     """
     def __init__(self,kernel,lower,upper,n_hypers=30,
                  chain_length = 100,burnin_length=150,
@@ -106,7 +116,19 @@ class GP:
         self.eps = 1e-8
         
     def fit(self,X,y):
+        '''
+        Samples hyperparameters from the posterior distribution using
+        MCMC sampling and then trains a GP on the data for each sample
         
+        Parameters
+        -----------
+        X: array, shape = (N,n_dim)
+            Input data. 
+        
+        y: array, shape = (N,)
+            Corresponding target values
+        
+        '''
         # data
         self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
         if type(y) is list:
