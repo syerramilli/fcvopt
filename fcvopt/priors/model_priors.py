@@ -11,8 +11,8 @@ class GPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.05)*np.ones((n_ls,))
-        upper = np.log(10)*np.ones((n_ls,))
+        lower = np.log(0.01)*np.ones((n_ls,))
+        upper = np.log(50)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
