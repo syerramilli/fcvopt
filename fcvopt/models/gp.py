@@ -93,7 +93,7 @@ class GP:
     
     """
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 100,burnin_length=150,
+                 chain_length = 100,burnin_length=100,
                  prior=None,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))

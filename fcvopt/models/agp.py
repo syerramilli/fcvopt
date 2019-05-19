@@ -13,7 +13,7 @@ from fcvopt.priors.model_priors import AGPPrior
 
 class AGP:
     def __init__(self,kernel,lower,upper,n_hypers=30,
-                 chain_length = 10,burnin_length=150,rng=None):
+                 chain_length = 100,burnin_length=100,rng=None):
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         else:
@@ -122,16 +122,19 @@ class AGP:
             return -np.inf
         
         n_folds = len(self.X_list)
-        Ainv = [None]*n_folds
+        Ainv = np.zeros((self.N,self.N))
+        p = 0
         for k in range(n_folds):
             try:
                 tmp,tmp2 = kernel_inv(k2_,self.X_list[k],self.eps,True)
             except np.linalg.LinAlgError:
                 return -np.inf
-            Ainv[k] = tmp
+            n = self.X_list[k].shape[0]
+            ind = p + np.arange(n)
+            Ainv[ind[:,None],ind] = tmp
+            p += n
             ldet_K += tmp2
-        
-        Ainv = block_diag(*Ainv)
+            
         Ainv = self.P.T.dot(Ainv).dot(self.P)
         
         tmp = self.U.T.dot(Ainv)
@@ -177,15 +180,18 @@ class AGP:
             return -np.inf
         
         n_folds = len(self.X_list)
-        Ainv = [None]*n_folds
+        Ainv = np.zeros((self.N,self.N))
+        p = 0
         for k in range(n_folds):
             try:
                 tmp = kernel_inv(k2_,self.X_list[k],self.eps,False)
             except np.linalg.LinAlgError:
                 return -np.inf
-            Ainv[k] = tmp
-        
-        Ainv = block_diag(*Ainv)
+            n = self.X_list[k].shape[0]
+            ind = p + np.arange(n)
+            Ainv[ind[:,None],ind] = tmp
+            p += n
+            
         Ainv = self.P.T.dot(Ainv).dot(self.P)
         
         tmp = self.U.T.dot(Ainv)

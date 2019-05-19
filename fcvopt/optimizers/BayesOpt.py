@@ -118,10 +118,15 @@ class BayesOpt:
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
                 
+            n_hypers = (n_dim+5)*3
+            if n_hypers % 2 == 1:
+                n_hypers +=1
+                
             self.gp = GP(self.kernel,self.param_bounds[:,0],
                          self.param_bounds[:,1],
-                         n_hypers=(n_dim+4)*5//2*2,
-                         chain_length=100,rng=self.rng)
+                         n_hypers=n_hypers,
+                         chain_length=100,rng=self.rng,
+                         burnin_length=100)
             self.acq = None
             
             self.X_inc = np.zeros((self.max_iter,n_dim))

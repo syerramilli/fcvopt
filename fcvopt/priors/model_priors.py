@@ -54,8 +54,8 @@ class AGPPrior:
         
         # variance terms
         self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
-        self.rho_prior = UniformPrior(0.7,1,rng)
-        self.rho2_prior = UniformPrior(0,1,rng)
+        self.rho_prior = UniformPrior(0.8,1-1e-8,rng)
+        self.rho2_prior = UniformPrior(1e-6,1-1e-6,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(amp**2,rng)

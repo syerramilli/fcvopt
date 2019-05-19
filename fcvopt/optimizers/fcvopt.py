@@ -108,11 +108,11 @@ class FCVOpt:
 #                        self.X[:,j] = np.round(self.X[:,j])
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
-            self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
-                                                  size=1,replace=False),
-                                  reps=(self.n_init,1)).tolist()
-#            self.f_list = self.rng.randint(0,self.cv.n_splits,
-#                                           self.n_init)[:,np.newaxis].tolist()
+#            self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
+#                                                  size=1,replace=False),
+#                                  reps=(self.n_init,1)).tolist()
+            self.f_list = self.rng.randint(0,self.cv.n_splits,
+                                           self.n_init)[:,np.newaxis].tolist()
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
@@ -120,10 +120,15 @@ class FCVOpt:
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
                 
+            n_hypers = (n_dim+5)*3
+            if n_hypers % 2 == 1:
+                n_hypers +=1
+                
             self.gp = AGP(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],
-                              n_hypers=(n_dim+4)*5//2*2,
-                              chain_length=50,rng=self.rng)
+                              n_hypers=n_hypers,
+                              chain_length=100,rng=self.rng,
+                              burnin_length=100)
             self.acq = None
             self.term = None
             
@@ -141,8 +146,8 @@ class FCVOpt:
         
         for i in range(self.max_iter):
             
-            if i >= 30:
-                self.gp.chain_length = 10
+#            if i >= 30:
+#                self.gp.chain_length = 10
             
             mcmc_start = time.time()
             self.gp.fit(self.X,self.y,self.f_list)
