@@ -2,7 +2,7 @@ import numpy as np
 import emcee
 import warnings
 
-from scipy.linalg import block_diag
+from scipy.sparse import block_diag
 from scipy.linalg import cholesky,cho_solve
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
@@ -62,7 +62,7 @@ class AGP:
         
         # partition points by fold/group
         n_reps = [len(f_vec) for f_vec in f_list]
-        self.U = block_diag(*[np.ones((n_rep,1)) for n_rep in n_reps])
+        self.U = block_diag([np.ones((n_rep,1)) for n_rep in n_reps])
         
         X_aug = np.repeat(self.X_train,n_reps,axis=0)
         self.X_list = [X_aug[np.where(f_full==group)[0],0:self.n_dim] for group in self.groups]
@@ -146,7 +146,7 @@ class AGP:
             Ainv[l,:] = Ainv[l,self.PT]         
         
         tmp = self.U.T.dot(Ainv)
-        inner = Sigma_n_inv + tmp.dot(self.U)
+        inner = Sigma_n_inv + tmp * self.U
         inner_chol = cholesky(inner,check_finite=False)
         tmp2 = cho_solve((inner_chol,False),tmp)
         ldet_K += 2*np.sum(np.log(np.diag(inner_chol)))
@@ -208,7 +208,7 @@ class AGP:
             Ainv[l,:] = Ainv[l,self.PT]
         
         tmp = self.U.T.dot(Ainv)
-        inner = Sigma_n_inv + tmp.dot(self.U)
+        inner = Sigma_n_inv + tmp * self.U
         inner_chol = cholesky(inner,check_finite=False)
         tmp2 = cho_solve((inner_chol,False),tmp)
         K_inv = Ainv - tmp.T.dot(tmp2)
@@ -245,7 +245,7 @@ class AGP:
         
     def _predict_i(self,X,i,return_std=True,return_cov=False):
         K_trans = self.k1_[i](X, self.X_train)
-        K_trans = K_trans.dot(self.U.T)
+        K_trans = K_trans * self.U.T
         y_mean = self.mu_[i] + K_trans.dot(self.Kinv_y_[i])
         
         if return_cov:
@@ -284,7 +284,7 @@ class AGP:
         msp = []
         for fold_id in fold_ids:   
             for i in range(self.n_hypers):
-                k1_x = self.k1_[i](x_copy,self.X_train).dot(self.U.T)
+                k1_x = self.k1_[i](x_copy,self.X_train) * self.U.T
     
                 k2_x = np.hstack([self.k2_[i](x_copy,self.X_list[i]) if fold_id == group \
                                   else np.zeros((1,self.X_list[i].shape[0])) \
