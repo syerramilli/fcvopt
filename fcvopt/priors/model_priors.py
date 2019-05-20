@@ -12,7 +12,7 @@ class GPPrior:
         # length-scales
         self.n_ls = n_ls
         lower = np.log(0.01)*np.ones((n_ls,))
-        upper = np.log(50)*np.ones((n_ls,))
+        upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
@@ -48,14 +48,14 @@ class AGPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.05)*np.ones((n_ls,))
+        lower = np.log(0.01)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # variance terms
-        self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
-        self.rho_prior = UniformPrior(0.8,1-1e-8,rng)
-        self.rho2_prior = UniformPrior(1e-6,1-1e-6,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        self.rho_prior = UniformPrior(0.7,1-1e-8,rng)
+        self.rho2_prior = UniformPrior(1e-8,1-1e-8,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(amp**2,rng)
