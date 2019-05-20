@@ -54,8 +54,11 @@ class AGP:
         f_full = np.array([subitem for item in f_list for subitem in item])
         self.N = f_full.size
         self.groups = np.unique(f_full)
-        self.P = np.zeros((self.N,self.N))
-        self.P[np.arange(self.N),np.argsort(f_full)] = 1
+        #self.P = np.zeros((self.N,self.N))
+        #self.P[np.arange(self.N),np.argsort(f_full)] = 1
+        # more economical calculations
+        self.P = np.argsort(f_full)
+        self.PT = np.argsort(self.P)
         
         # partition points by fold/group
         n_reps = [len(f_vec) for f_vec in f_list]
@@ -134,8 +137,13 @@ class AGP:
             Ainv[ind[:,None],ind] = tmp
             p += n
             ldet_K += tmp2
-            
-        Ainv = self.P.T.dot(Ainv).dot(self.P)
+        
+        #Ainv = self.P.T.dot(Ainv).dot(self.P)
+        # implementing permutation P^T.Ainv.P
+        for l in range(self.N):
+            Ainv[:,l] = Ainv[self.PT,l]
+        for l in range(self.N):
+            Ainv[l,:] = Ainv[l,self.PT]         
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
@@ -192,7 +200,12 @@ class AGP:
             Ainv[ind[:,None],ind] = tmp
             p += n
             
-        Ainv = self.P.T.dot(Ainv).dot(self.P)
+        #Ainv = self.P.T.dot(Ainv).dot(self.P)
+        # implementing permutation P^T.Ainv.P
+        for l in range(self.N):
+            Ainv[:,l] = Ainv[self.PT,l]
+        for l in range(self.N):
+            Ainv[l,:] = Ainv[l,self.PT]
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp.dot(self.U)
@@ -277,7 +290,8 @@ class AGP:
                                   else np.zeros((1,self.X_list[i].shape[0])) \
                                   for i,group in enumerate(self.groups)])
                 
-                r = k1_x + k2_x.dot(self.P.T)
+                #r = k1_x + k2_x.dot(self.P.T)
+                r = k1_x + k2_x[0:1,self.P]
                 tmp = r.dot(self.Kinv_[i])
                 k1_var = self.k1_[i](x_copy)
                 total_var = k1_var + self.k2_[i](x_copy)
