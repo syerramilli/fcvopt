@@ -16,7 +16,7 @@ class GPPrior:
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
-        self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(amp**2,rng)
@@ -53,7 +53,7 @@ class AGPPrior:
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # variance terms
-        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),0.5,rng)
         self.rho_prior = UniformPrior(0.7,1-1e-8,rng)
         self.rho2_prior = UniformPrior(1e-8,1-1e-8,rng)
         
