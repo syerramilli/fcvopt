@@ -109,10 +109,10 @@ class FCVOpt:
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
 #            self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
-#                                                  size=1,replace=False),
+#                                                  size=2,replace=False),
 #                                  reps=(self.n_init,1)).tolist()
-            self.f_list = self.rng.randint(0,self.cv.n_splits,
-                                           self.n_init)[:,np.newaxis].tolist()
+            self.f_list =[self.rng.choice(self.cv.n_splits,1,
+                                           replace=False).tolist() for _ in range(self.n_init)]
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
@@ -185,7 +185,7 @@ class FCVOpt:
             new_point = 1
             point_index = np.argmin(dist_cand)
             
-            if dist_cand[point_index]/n_dim <= 1e-2:
+            if np.round(dist_cand[point_index],2) <= 1e-2+1e-8:
                 new_point = 0
                 x_cand = self.X[point_index,:].copy()
                 acq_cand = self.acq(x_cand,scaled=False)
