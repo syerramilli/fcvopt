@@ -68,9 +68,10 @@ class AGP:
         self.X_list = [X_aug[np.where(f_full==group)[0],0:self.n_dim] for group in self.groups]
           
         # initialize prior
-        y_loc = np.mean(self.y_train) # mean
+        y_min = np.min(self.y_train) # minimum
+        y_max = np.max(self.y_train) # maximum
         y_scale = np.std(self.y_train) # std dev
-        self.prior = AGPPrior(self.n_dim,y_loc,y_scale,self.rng)
+        self.prior = AGPPrior(self.n_dim,y_min,y_max,y_scale,self.rng)
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,
