@@ -146,10 +146,11 @@ class GP:
         self.k1 = kernel_ls*C(1.0) + WhiteKernel(0.01)
           
         # initialize prior
-        y_loc = np.mean(self.y_train) # mean
+        y_min = np.min(self.y_train) # mean
+        y_max = np.max(self.y_train) # mean
         y_scale = np.std(self.y_train) # std dev
         if self.prior is None:
-            self.prior = GPPrior(self.n_dim,y_loc,y_scale,self.rng)
+            self.prior = GPPrior(self.n_dim,y_min,y_max,y_scale,self.rng)
         
         # Initialize sampler
         sampler = emcee.EnsembleSampler(self.n_hypers,
