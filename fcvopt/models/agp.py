@@ -163,14 +163,17 @@ class AGP:
     def log_posterior(self,theta):
         if np.any(theta<-15) or np.any(theta>15):
             return -np.inf
-        log_lik = self.log_likelihood(theta)
+        
         log_prior = self.prior.lnpdf(theta)
         
-        if log_lik is np.NaN:
-            print("Log-Likelhood compromised")
+        if np.isinf(log_prior):
+            return -np.inf
         
-        if log_prior is np.NaN:
-            print("Log-prior compromised")
+        log_lik = self.log_likelihood(theta)
+        
+        if np.isnan(log_lik):
+            print(theta)
+            print("Log-Likelhood compromised")
         
         return log_lik + log_prior
     
