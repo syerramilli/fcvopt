@@ -2,7 +2,7 @@
 
 import numpy as np
 from fcvopt.priors.base_prior import UniformPrior, NormalPrior
-from fcvopt.priors.base_prior import HorseshoePrior, BetaPrior
+from fcvopt.priors.base_prior import HorseshoePrior#, BetaPrior
 
 class GPPrior:
     def __init__(self,n_ls,y_min,y_max,amp,rng):
@@ -11,12 +11,14 @@ class GPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.01)*np.ones((n_ls,))
+        lower = np.log(0.05)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # Variance:
-        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        log_amp = 2*np.log(amp)
+        self.var_prior = UniformPrior(log_amp-4,log_amp+4,rng)
+        #self.var_prior = NormalPrior(2*np.log(amp),1,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(amp**2,rng)
@@ -48,14 +50,14 @@ class AGPPrior:
         
         # length-scales
         self.n_ls = n_ls
-        lower = np.log(0.01)*np.ones((n_ls,))
+        lower = np.log(0.05)*np.ones((n_ls,))
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
         # variance terms
-        #self.var_prior = NormalPrior(2*np.log(amp),1,rng)
-        log_amp = 2*np.log(amp)
-        self.var_prior = UniformPrior(log_amp-4,log_amp+4,rng)
+        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        #log_amp = 2*np.log(amp)
+        #self.var_prior = UniformPrior(log_amp-4,log_amp+4,rng)
         self.rho_prior = UniformPrior(0.7,1-1e-8,rng)
         self.rho2_prior = UniformPrior(1e-8,1-1e-8,rng)
         
@@ -79,10 +81,12 @@ class AGPPrior:
         log_p += self.var_prior.lnpdf(total_var) 
         log_p += self.rho_prior.lnpdf(rho)
         log_p += self.rho2_prior.lnpdf(rho2)
-        log_p += - 2*total_var - np.log(1-rho) 
-        log_p += np.sum(theta[self.n_ls+1+np.arange(3)])
+        # extra term due to reparamterization
+        log_p += - 2*total_var - np.log(1-rho)
+        # extra term due to transfrom from log to regular
+        log_p += np.sum(theta[self.n_ls+1+np.arange(3)]) 
         
-        #log_p += self.noise_prior.lnpdf(theta[self.n_ls + 4])
+        log_p += self.noise_prior.lnpdf(theta[self.n_ls + 4])
         return log_p
     
     def sample(self,n_samples):
