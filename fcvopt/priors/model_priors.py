@@ -15,10 +15,8 @@ class GPPrior:
         upper = np.log(10)*np.ones((n_ls,))
         self.ls_prior = UniformPrior(lower,upper,rng)
         
-        # Variance:
-        log_amp = 2*np.log(amp)
-        self.var_prior = UniformPrior(log_amp-4,log_amp+4,rng)
-        #self.var_prior = NormalPrior(2*np.log(amp),1,rng)
+        # Variance
+        self.var_prior = NormalPrior(2*np.log(amp),1,rng)
         
         # noise prior
         self.noise_prior = HorseshoePrior(amp**2,rng)
