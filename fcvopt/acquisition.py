@@ -1,6 +1,20 @@
 import numpy as np
 
 class LCB:
+    """
+    Lower confidence bound
+    
+    Parameters
+    -------------
+    model: GP or AGP object or any object which implements a 
+    `predict` method with the following arguments
+        - X
+        - scaled
+        - return_std
+        
+    kappa: float, optional (default: 2)
+        Multiplier which constrols the exploration-exploitation tradeoff
+    """
     def __init__(self,model,kappa=2):
         self.model = model
         self.kappa = kappa
