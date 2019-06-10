@@ -14,7 +14,61 @@ from fcvopt.util.wrappers import scipy_minimize
 from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt:
-    def __init__(self,estimator,param_bounds,metric,n_folds=10,logscale=None,
+    '''
+    Fast cross-validation for optimizing hyperparameters of supervised
+    learning algorithms
+    
+    Parameters
+    --------------
+    estimator: estimator object
+        An object implementing the scikit-learn estimator interface
+    
+    param_bounds: dict
+        Dictionary with hyperparameter names as keys and lists of lower 
+        and upper bounds for each hyperparameter. Currently only
+        numerical-valued hyperparameters are supported
+        
+    metric: callable
+        Callable to evaluate the predictions on the test set. Must accept
+        two arguments- `y_true` and `y_pred`.
+    
+    n_folds: int (default: 5)
+        The number of folds in the fold partition. Either 5 or 10
+        is recommended
+        
+    logscale: 1D array or None (default: None)
+        Array of indices, corresponding to the order in `param_bounds`,
+        of those hyperparameters which need to be optimized in logscale
+        
+    integer: 1D array or None (default:None)
+        Array of indices, corresponding to the order in `param_bounds`,
+        of those hyperparameters which are integer-valued. Integrality 
+        will be enforced when evaluating the configurations
+        
+    return_prob: boolean (default: False)
+        Logical indicating whether the metric returns probablity
+        estimates out of a classifer
+        
+    kernel: string
+        Name of the kernel. Current options are "gaussian" (Gaussian or 
+        RBF Kernel) and "matern" (Matern 5/2 kernel). These kernels are 
+        implemented in scikit-learn
+        
+    kappa: int (default: 2)
+    
+    n_init: int (defult: 4)
+    
+    max_iter: int (default: 10)
+    
+    verbose: int (default: 10)
+    
+    seed: int or None (default: None)
+
+    save_iter: int or None (default: None)
+    
+    save_dir: None    
+    '''
+    def __init__(self,estimator,param_bounds,metric,n_folds=5,logscale=None,
                  integer=[],return_prob=False,kernel="matern",kappa=2,
                  n_init=4,max_iter=10,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
@@ -54,6 +108,8 @@ class FCVOpt:
         self.folds = None
     
     def _eval_model(self,estimator,train,test,X_alg,y_alg):
+        # TODO: add support for unsupervised learning
+        # algorithm and corresponding metrics
         estimator.fit(X_alg[train,:],y_alg[train])
         if self.return_prob:
             y_pred = estimator.predict_proba(X_alg[test,:])
@@ -92,38 +148,53 @@ class FCVOpt:
         
             
     def fit(self,X_alg,y_alg):
+        '''
+        Optimize hyperparameters of the specfied learning algorithm on 
+        the given dataset
         
+        Parameters
+        -------------
+        X_alg: 2D array
+            The features/covariates for the supervised learning algorithm
+            
+        y_alg: 1D array
+            The output for the supervised learning algorith,
+        '''
         start_time = time.time()
         if self.gp is None:
+            # TODO: add else case to run optimization
+            # for additional iterations 
             n_dim = self.param_bounds.shape[0]
+            
+            # initial configuration sampled using LHS
             if type(self.n_init) is int:
                 self.X = lh_sampler(self.n_init,self.param_bounds[:,0],
                                     self.param_bounds[:,1],self.rng)
             else:
                 self.X = self.n_init
                 self.n_init = self.X.shape[0]
-                
-#            if len(self.integer) > 0:
-#                    for j in self.integer:
-#                        self.X[:,j] = np.round(self.X[:,j])
-                        
+            
+            # Generate fold partition and assign folds at random
+            # to the initial configurations
             self.folds = [ind for ind in self.cv.split(X_alg)]
-#            self.f_list = np.tile(self.rng.choice(np.arange(self.cv.n_splits),
-#                                                  size=2,replace=False),
-#                                  reps=(self.n_init,1)).tolist()
             self.f_list =[self.rng.choice(self.cv.n_splits,1,
                                            replace=False).tolist() for _ in range(self.n_init)]
+            
+            # evaluate initial hyperparameter configurations
             for i in np.arange(self.n_init):
                 tmp1,tmp2 = self._fold_eval(self.X[i,:],
                                             self.f_list[i],
                                             X_alg,y_alg,False)
                 self.y.append(tmp1)
                 self.eval_time.append(tmp2)
-                
+            
+            # number of AGP hyperparametes to store 
+            # also servers as the number of walkers
             n_hypers = (n_dim+5)*3
             if n_hypers % 2 == 1:
                 n_hypers +=1
-                
+            
+            # initialize AGP model
             self.gp = AGP(self.kernel,self.param_bounds[:,0],
                               self.param_bounds[:,1],
                               n_hypers=n_hypers,
@@ -146,29 +217,37 @@ class FCVOpt:
         
         for i in range(self.max_iter):
             
-#            if i >= 30:
-#                self.gp.chain_length = 10
-            
+            ########## "Fit" AGP model ########## 
             mcmc_start = time.time()
             self.gp.fit(self.X,self.y,self.f_list)
             self.mcmc_time[i] = time.time()-mcmc_start
+            
             
             self.sigma_f_vec[i] = \
                             np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-1]) \
                                              for i in range(self.gp.n_hypers)]) + \
                                     np.var(self.gp.mu_))
+            
+            ########## Find incumbent ##########
             self.X_inc[i,:],self.y_inc[i],_ = self.gp.get_incumbent()
             
+            # converting to [0,1] scale - to be used
+            # in acqusition as an initial guess
             x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
                                        self.param_bounds[:,0],
                                        self.param_bounds[:,1])
             
-            # acquisition function optimization - find candidate
+            # storing incumbent in the original scale
+            if self.logscale is not None:
+                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
+            
+            ########## Acquisition ##########
             if self.acq is None:
                 self.acq = LCB(self.gp,kappa=self.kappa)
             else:
                 self.acq.update(self.gp)
             
+            # optimize LCB
             acq_start = time.time()
             x_cand,acq_cand = scipy_minimize(self.acq,
                                              x_inc,
@@ -178,21 +257,19 @@ class FCVOpt:
                                              n_restarts=9)
             self.acq_time[i] = time.time()-acq_start
             
+            
+            # checking if point is close to existing design points
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
             dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
-
             new_point = 1
             point_index = np.argmin(dist_cand)
-            
             if np.round(dist_cand[point_index],2) <= 1e-2+1e-8:
                 new_point = 0
                 x_cand = self.X[point_index,:].copy()
                 acq_cand = self.acq(x_cand,scaled=False)
             
-            if self.logscale is not None:
-                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
-            
+            ########## Printing updates ##########
             if self.verbose >= 2:
                 if i%10==0:
                     # print header every 10 iterations
@@ -202,13 +279,18 @@ class FCVOpt:
             
             self.acq_vec[i] = acq_cand
             
+            ########## Saving progress to disk ##########
             if self.save_iter is not None:
                 if (i+1)%self.save_iter == 0:
                     fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
                     with open(fname,"wb") as f:
                         pickle.dump(self,f)
-                        
+            
+            ########## Evaluate new configurations ##########
             if i < self.max_iter-1:
+                # evaluate new configurations to be evaluted 
+                # provided the next iteration is still allowed
+                
                 # pick fold to evaluate
                 f_cand = self._fold_pick(x_cand,new_point,point_index,
                                          X_alg.shape[0])
@@ -229,12 +311,13 @@ class FCVOpt:
                     self.eval_time[point_index].extend(time_cand)
                     self.f_list[point_index].extend(f_cand)
         
+        ########## Tidying up ##########
         self.total_time = time.time()-start_time
         est_cand = self.gp.predict(x_cand,return_std=False)
         if self.logscale is not None:
             x_cand[self.logscale] = np.exp(x_cand[self.logscale])
             
-        # Final output message
+        ########## Final output message ##########
         if self.verbose >=1 :
             print('')
             print('Number of candidates evaluated.....: %g' % self.X.shape[0])
@@ -248,6 +331,8 @@ class FCVOpt:
             print('Candidate at termination:')
             print(x_cand)
         
+        
+        ########## Return acqusision and candidate as output ##########
         results = dict()
         results["x_best"] = self.X_inc[-1,:]
         results["f_best"] = self.y_inc[-1]
@@ -257,24 +342,56 @@ class FCVOpt:
         return results
     
     def _fold_pick(self,x_cand,new_point,point_index,n_alg):
+        """
+        Pick fold (index) at the candidate point
+        
+        Parameters
+        -------------
+        x_cand: 1-D array, shape = (n_dim,)
+            The candidate at which the fold needs to be picked
+            
+        new_point: boolean
+            Boolean variable indicating whether the candidate has
+            already been sampled or not
+            
+        point_index: int
+            If new_point is True, the index of the corresponding 
+            observation in the configuration matrix
+        
+        n_alg: int
+            Number of samples in the dataset for the supervised
+            learning algorithm
+        """
         f_set = np.arange(self.cv.n_splits)
         if not new_point:
             f_set = np.setdiff1d(f_set,self.f_list[point_index])
             if len(f_set)==1:
                 return [f_set[0]]
             elif len(f_set)==0:
+                # if all of the existing folds from the original 
+                # partition are evaluated at this configuration,
+                # sample from another partition. The uncertainty
+                # reduction criteria no longer applies
                 if len(self.f_list[point_index]) % len(self.folds) == 0:
-                    # generate new partition
+                    # generate new partition if all partitons
+                    # are exhausted at this configuration and
+                    # assign fold at random from this new partition
                     f_cand = len(self.folds) + self.rng.randint(0,self.cv.n_splits)
                     self.folds.extend([ind for ind in self.cv.split(np.arange(n_alg))])
                 else:
+                    # partitions are not exhausted
                     f_set = np.setdiff1d(np.arange(len(self.folds)),
                                          self.f_list[point_index])
                     f_cand = self.rng.choice(f_set,1)[0]
                 return [f_cand]
-                
+        
+        # folds from the original partition are not exhausted 
         f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]
         return [f_cand]
     
     def term_crit(self):
+        """
+        Returns an array of termination metrics at the incumbent
+        of each iteration
+        """
         return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
