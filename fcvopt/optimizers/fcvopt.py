@@ -395,3 +395,154 @@ class FCVOpt:
         of each iteration
         """
         return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
+    
+    def resume(self,X_alg,y_alg):
+        # determine last iteration
+        last_iter = next((i-1 for i, x in enumerate(self.y_inc) if np.abs(x) < 1e-8), None)
+        
+        n_obs_y = np.sum([len(tmp) for tmp in self.y]) # number of points added
+        n_eval = last_iter + self.n_init  # number of points evaluated by GP model
+        
+        if n_eval == n_obs_y + 1:
+            # interrupted while updating model
+            # a new iteration has just begun
+            print("**** Interrupted when updating model ****\n")
+            model_flag = True
+            last_iter = last_iter+1
+        else:
+            # model interrupted after updating model
+            # need to repeat from acqusition stage since
+            # candidate point isn't stored
+            print("**** Interrupted after updating model ****\n")
+            model_flag = False
+            
+        
+        ######### Recalculations #############
+        n_dim = self.param_bounds.shape[0]
+        output_header = '%6s %9s %10s %10s' % \
+                    ('iter', 'f_best', 'acq_best',"sigma_f")          
+        if self.verbose >= 2:
+            print(output_header)
+        
+        for i in np.arange(last_iter,self.max_iter):
+            ########## "Fit" AGP model ##########
+            no_update_flag = (i==last_iter) and not model_flag
+            if not no_update_flag:
+                mcmc_start = time.time()
+                self.gp.fit(self.X,self.y,self.f_list)
+                self.mcmc_time[i] = time.time()-mcmc_start
+            
+            self.sigma_f_vec[i] = \
+                            np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-1]) \
+                                             for i in range(self.gp.n_hypers)]) + \
+                                    np.var(self.gp.mu_))
+            
+            ########## Find incumbent ##########
+            self.X_inc[i,:],self.y_inc[i],_ = self.gp.get_incumbent()
+            
+            # converting to [0,1] scale - to be used
+            # in acqusition as an initial guess
+            x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
+                                       self.param_bounds[:,0],
+                                       self.param_bounds[:,1])
+            
+            # storing incumbent in the original scale
+            if self.logscale is not None:
+                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
+            
+            ########## Acquisition ##########
+            self.acq.update(self.gp)
+            
+            # optimize LCB
+            acq_start = time.time()
+            x_cand,acq_cand = scipy_minimize(self.acq,
+                                             x_inc,
+                                             np.zeros((n_dim,)),
+                                             np.ones((n_dim,)),
+                                             rng = self.rng,
+                                             n_restarts=9)
+            self.acq_time[i] = time.time()-acq_start
+            
+            
+            # checking if point is close to existing design points
+            x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+            dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
+                               axis=1)
+            new_point = 1
+            point_index = np.argmin(dist_cand)
+            if np.round(dist_cand[point_index],2) <= 1e-2+1e-8:
+                new_point = 0
+                x_cand = self.X[point_index,:].copy()
+                acq_cand = self.acq(x_cand,scaled=False)
+            
+            ########## Printing updates ##########
+            if self.verbose >= 2:
+                if i%10==0:
+                    # print header every 10 iterations
+                    print(output_header)
+                print('%6i %3.3e %3.3e %3.3e' %\
+                      (i, self.y_inc[i],acq_cand,self.sigma_f_vec[i]))
+            
+            self.acq_vec[i] = acq_cand
+            
+            ########## Saving progress to disk ##########
+            if self.save_iter is not None:
+                if (i+1)%self.save_iter == 0:
+                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    with open(fname,"wb") as f:
+                        pickle.dump(self,f)
+            
+            ########## Evaluate new configurations ##########
+            if i < self.max_iter-1:
+                # evaluate new configurations to be evaluted 
+                # provided the next iteration is still allowed
+                
+                # pick fold to evaluate
+                f_cand = self._fold_pick(x_cand,new_point,point_index,
+                                         X_alg.shape[0])
+                
+                # evaluate candidate
+                y_cand,time_cand = self._fold_eval(x_cand,f_cand,
+                                                   X_alg,y_alg,False)
+                
+                # append observations
+                if new_point:
+                    self.X = np.vstack((self.X,np.copy(x_cand)))
+                    self.y.append(y_cand)
+                    self.eval_time.append(time_cand)
+                    self.f_list.append(f_cand)
+                    
+                else:
+                    self.y[point_index].extend(y_cand)
+                    self.eval_time[point_index].extend(time_cand)
+                    self.f_list[point_index].extend(f_cand)
+        
+        ########## Tidying up ##########
+        #self.total_time = time.time()-start_time
+        est_cand = self.gp.predict(x_cand,return_std=False)
+        if self.logscale is not None:
+            x_cand[self.logscale] = np.exp(x_cand[self.logscale])
+            
+        ########## Final output message ##########
+        if self.verbose >=1 :
+            print('')
+            print('Number of candidates evaluated.....: %g' % self.X.shape[0])
+            print('Number of folds evaluated..........: %g' % self.gp.y_train.shape[0])
+            print('Estimated obj at incumbent.........: %g' % self.y_inc[-1])
+            print('Estimated obj at candidate.........: %g' % est_cand)
+            print('')
+            print('Incumbent at termination:')
+            print(self.X_inc[-1,:])
+            print('')
+            print('Candidate at termination:')
+            print(x_cand)
+        
+        
+        ########## Return acqusision and candidate as output ##########
+        results = dict()
+        results["x_best"] = self.X_inc[-1,:]
+        results["f_best"] = self.y_inc[-1]
+        results["acq_cand"] = self.acq_vec[-1]
+        results["x_cand"] = x_cand
+        
+        return results
