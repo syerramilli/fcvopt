@@ -55,22 +55,40 @@ class FCVOpt:
         implemented in scikit-learn
         
     kappa: int (default: 2)
+        Confidence level for the lower confidence bound. Default
+        value of 2 works for most cases
     
     n_init: int (defult: 4)
+        The number of points for the intial design. The higher the number, 
+        the better the model, but the higher the computational expense. 
+        Recommendation: use D+1 initial configurations, where D is the 
+        number of hyperparameters to be optimized
     
-    max_iter: int (default: 10)
+    max_iter: int (default: 30)
+        The number of iterations, excluding initial design. 
     
-    verbose: int (default: 10)
+    verbose: int (default: 0)
+        Parameter controlling the amount of output printed
+        - >= 2: print progress at ech iteration
+        - == 1: print statistics at termination
+        - == 0: no output
     
     seed: int or None (default: None)
+        The seed to be used for the random number generator
 
     save_iter: int or None (default: None)
+        The number of iterations at which the model is saved to disk 
+        periodically. Useful when max_iter is large. See documentation
+        for the `resume` method to resume iterations for interrupted/
+        incomplete runs
     
-    save_dir: None    
+    save_dir: None
+        The directory to periodically save progress. Useful only
+        when `save_iter` is not None.
     '''
     def __init__(self,estimator,param_bounds,metric,n_folds=5,logscale=None,
                  integer=[],return_prob=False,kernel="matern",kappa=2,
-                 n_init=4,max_iter=10,verbose=0,seed=None,save_iter=None,
+                 n_init=4,max_iter=30,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
@@ -397,13 +415,25 @@ class FCVOpt:
         return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
     
     def resume(self,X_alg,y_alg):
+        '''
+        Resume interrupted runs. The algorithm resumes from the last
+        completed iteration.
+        
+        Parameters
+        -------------
+        X_alg: 2D array
+            The features/covariates for the supervised learning algorithm
+            
+        y_alg: 1D array
+            The output for the supervised learning algorith,
+        '''
         # determine last iteration
         last_iter = next((i-1 for i, x in enumerate(self.y_inc) if np.abs(x) < 1e-8), None)
         
+        N_gp = self.gp.Kinv_[0].shape[0] # number of observations in fitted GP model
         n_obs_y = np.sum([len(tmp) for tmp in self.y]) # number of points added
-        n_eval = last_iter + self.n_init  # number of points evaluated by GP model
         
-        if n_eval == n_obs_y + 1:
+        if N_gp < n_obs_y:
             # interrupted while updating model
             # a new iteration has just begun
             print("**** Interrupted when updating model ****\n")
