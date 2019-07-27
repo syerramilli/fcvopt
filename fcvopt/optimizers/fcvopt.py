@@ -128,11 +128,18 @@ class FCVOpt:
     def _eval_model(self,estimator,train,test,X_alg,y_alg):
         # TODO: add support for unsupervised learning
         # algorithm and corresponding metrics
-        estimator.fit(X_alg[train,:],y_alg[train])
-        if self.return_prob:
-            y_pred = estimator.predict_proba(X_alg[test,:])
+
+        if len(X_alg.shape) == 1:
+            estimator.fit(X_alg[train],y_alg[train])
+            X_alg_test = X_alg[test]
         else:
-            y_pred = estimator.predict(X_alg[test,:])
+            estimator.fit(X_alg[train,:],y_alg[train])
+            X_alg_test = X_alg[test,:]
+
+        if self.return_prob:
+            y_pred = estimator.predict_proba(X_alg_test)
+        else:
+            y_pred = estimator.predict(X_alg_test)
         return self.metric(y_alg[test],y_pred)
     
     def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
