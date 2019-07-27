@@ -12,6 +12,86 @@ from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.priors.model_priors import AGPPrior
 
 class AGP:
+    """
+    Additive Gaussian process model that uses MCMC sampling to marginalize over
+    the hyper-parameters. 
+    
+    Parameters
+    -------------
+    kernel: string
+        Name of the kernel. Current options are "gaussian" (Gaussian or 
+        RBF Kernel) and "matern" (Matern 5/2 kernel). These kernels are 
+        implemented in scikit-learn
+        
+    lower: array-like, shape = (n_dim,)
+        Lower bound on the inpute space used for scaling to the 0-1 hypercube
+    
+    upper: array-like, shape = (n_dim,)
+        Upper bound on the features used for scaling to the 0-1 hypercube
+    
+    n_hypers: int, optional (default:30)
+         The number of hyperparameter samples. This is also the determine
+         the number of walkers for MCMC sampling. 
+        
+    chain_length: int, optional (default:100)
+        The number of MCMC steps. The walkers in the last step will be 
+        used as the hyperparameter samples.
+    
+    burnin_length: int, optional (default:150)
+        The number of burnin steps before the actual MCMC sampling begins
+        
+    rng: int, RandomState instance or None, optional (default: None)
+        The generators used to intialize the MCMC samples. If int, random_state is
+        the seed used by the random number generator; If RandomState instance,
+        random_state is the random number generator; If None, the random number
+        generator is the RandomState instance used by `np.random`.
+    
+    Attributes
+    -------------
+    X_train: array, shape = (n_unique,n_dim):
+        Feature values in training data (scaled to the 0-1 hypercube)
+        
+    y_list: list shape = (n_samples,)
+        Target values in training data
+        
+    f_list: list
+        Fold identities
+        
+    k1: kernel object 
+        The kernel with the specified structure (not used for prediction)
+        
+    prior:
+        The prior on the GP hyperparameters
+        
+    burned: bool
+        Indicates whether burning has been performed. False before 
+        the fit method is used
+    
+    mu_: array, shape = (n_hypers,)
+        Samples from the posterior distribution on the GP mean
+        
+    hypers: array, shape = (n_hypers,n_features+3)
+        Hyperparameter samples from the posterior. Includes the mean,
+        length-scales, amplitude, and the noise variance. All 
+        hyperparameters except the mean are in log-scale
+        
+    k1_: list, length = n_hypers
+        List of kernel objects, each of which correspond to the samples
+        in hypers
+        
+    Kinv_: list, length = n_hypers
+        List of inverse covariance kernel in ``X_train`` corresponding to
+        the samples in hypers. Shape of each array is (n_samples,n_samples)
+        
+    Kinv_y_: list, length = n_hypers
+        List of dot-products of the invariance covariance kernels
+        corresponding to the samples in hypers and `y_train`. 
+        (Used for prediction)
+        
+    p0: array, shape = (n_hypers,n_features+3)
+        Last-state of the MCMC chain
+    
+    """
     def __init__(self,kernel,lower,upper,n_hypers=30,
                  chain_length = 100,burnin_length=100,rng=None):
         if rng is None:

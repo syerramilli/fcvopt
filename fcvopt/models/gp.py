@@ -254,7 +254,7 @@ class GP:
         mu_,k1_ = self._return_kernels(theta)
             
         try:
-            Kinv,ldet_K = kernel_inv(k1_,self.X_train,self.eps,True)
+            Kinv,_ = kernel_inv(k1_,self.X_train,self.eps,False)
         except np.linalg.LinAlgError:
             return -np.inf
         
