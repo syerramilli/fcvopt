@@ -1,17 +1,10 @@
-# -*- coding: utf-8 -*-
-
 import numpy as np
 import os
 import time
-import pickle
-from sklearn.base import clone
-from sklearn.model_selection import KFold
 
 from fcvopt.optimizers.BayesOpt import BayesOpt
 from fcvopt.models.agp import AGP
-from fcvopt.acquisition import LCB
 from fcvopt.util.samplers import lh_sampler
-from fcvopt.util.wrappers import scipy_minimize 
 from fcvopt.util.preprocess import zero_one_scale
 
 class FCVOpt(BayesOpt):
@@ -332,7 +325,6 @@ class FCVOpt(BayesOpt):
             
         
         ######### Recalculations #############
-        n_dim = self.param_bounds.shape[0]
         output_header = '%6s %9s %10s %10s' % \
                     ('iter', 'f_best', 'acq_best',"sigma_f")          
         if self.verbose >= 2:
@@ -365,18 +357,7 @@ class FCVOpt(BayesOpt):
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
             
             ########## Acquisition ##########
-            self.acq.update(self.gp)
-            
-            # optimize LCB
-            acq_start = time.time()
-            x_cand,acq_cand = scipy_minimize(self.acq,
-                                             x_inc,
-                                             np.zeros((n_dim,)),
-                                             np.ones((n_dim,)),
-                                             rng = self.rng,
-                                             n_restarts=9)
-            self.acq_time[i] = time.time()-acq_start
-            
+            x_cand, acq_cand = self._acquistion(x_inc,i)
             
             # checking if point is close to existing design points
             x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand

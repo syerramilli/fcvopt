@@ -49,11 +49,11 @@ class AGP(GP):
     
     Attributes
     -------------
-    X_train: array, shape = (n_unique,n_dim):
+    X: array, shape = (n_unique,n_dim):
         Feature values in training data (scaled to the 0-1 hypercube)
         
-    y_list: list shape = (n_samples,)
-        Target values in training data
+    y: array, (n_obs,)
+        Flattened taget values
         
     f_list: list
         Fold identities
