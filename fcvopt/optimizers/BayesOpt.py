@@ -48,45 +48,8 @@ class BayesOpt:
         self.eval_time = []
         self.total_time = None
         self.folds = None
-    
-    def _eval_model(self,estimator,train,test,X_alg,y_alg):
-        estimator.fit(X_alg[train,:],y_alg[train])
-        if self.return_prob:
-            y_pred = estimator.predict_proba(X_alg[test,:])
-        else:
-            y_pred = estimator.predict(X_alg[test,:])
-        return self.metric(y_alg[test],y_pred)
-    
-    def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
-        estimator = clone(self.estimator)
         
-        params_ = np.copy(params)
-        if self.logscale is not None:
-            params_[self.logscale] = np.exp(params_[self.logscale])
-            
-        # set parameters
-        for j in np.arange(len(self.param_names)):
-            tmp = params_[j]
-            if j in self.integer:
-                tmp = np.int(np.round(tmp))
-                
-            estimator.set_params(**{self.param_names[j]:tmp})
-            
-        time_eval = []
-        y_eval = []
-        
-        for ind in fold_ind:
-            start_time = time.time()
-            train,test = self.folds[ind]
-            y_eval.append(self._eval_model(estimator,train,test,X_alg,y_alg))
-            time_eval.append(time.time()-start_time)
-        
-        if return_average:
-            return np.mean(y_eval),np.sum(time_eval)
-        else:
-            return y_eval,time_eval
-        
-    def fit(self,X_alg,y_alg,fold_index=None):
+    def run(self,X_alg,y_alg,fold_index=None):
         
         start_time = time.time()
         if self.gp is None:
@@ -156,21 +119,7 @@ class BayesOpt:
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
             
             # acquisition function optimization - find candidate
-            if self.acq is None:
-                self.acq = LCB(self.gp,self.kappa)
-            else:
-                self.acq.update(self.gp)
-            
-            acq_start = time.time()
-            x_cand,acq_cand = scipy_minimize(self.acq,
-                                             x_inc,
-                                             np.zeros((n_dim,)),
-                                             np.ones((n_dim,)),
-                                             rng = self.rng,
-                                             n_restarts=9)
-            self.acq_time[i] = time.time()-acq_start
-            
-            x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+            x_cand, acq_cand = self._acquistion(x_inc,i)
             
             if self.verbose >= 2:
                 if i%10==0:
@@ -183,9 +132,8 @@ class BayesOpt:
             
             if self.save_iter is not None:
                 if (i+1)%self.save_iter == 0:
-                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
-                    with open(fname,"wb") as f:
-                        pickle.dump(self,f)
+                    filepath = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    self.save_to_pickle(filepath)
                         
             if i < self.max_iter-1:
                 
@@ -199,11 +147,88 @@ class BayesOpt:
                 self.eval_time.append(time_cand)
         
         self.total_time = time.time()-start_time
+            
+        # Final output message
+        return self.print_and_return(x_cand)
+        
+    def term_crit(self):
+        return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
+    
+    def _acquistion(self,x_inc,i):
+        # initialize acqusition function
+        if self.acq is None:
+            self.acq = LCB(self.gp,kappa=self.kappa)
+        else:
+            self.acq.update(self.gp)
+        
+        # optimize LCB
+        acq_start = time.time()
+        x_cand,acq_cand = scipy_minimize(self.acq,
+                                        x_inc,
+                                        np.zeros((self.gp.n_dim,)),
+                                        np.ones((self.gp.n_dim,)),
+                                        rng = self.rng,
+                                        n_restarts=9)
+        self.acq_time[i] = time.time()-acq_start
+        x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
+
+        return x_cand,acq_cand
+    
+    def save_to_pickle(self,filepath):
+        with open(filepath,'wb') as f:
+            pickle.dump(self,f)
+    
+    def _eval_model(self,estimator,train,test,X_alg,y_alg):
+        # TODO: add support for unsupervised learning
+        # algorithm and corresponding metrics
+
+        if len(X_alg.shape) == 1:
+            estimator.fit(X_alg[train],y_alg[train])
+            X_alg_test = X_alg[test]
+        else:
+            estimator.fit(X_alg[train,:],y_alg[train])
+            X_alg_test = X_alg[test,:]
+
+        if self.return_prob:
+            y_pred = estimator.predict_proba(X_alg_test)
+        else:
+            y_pred = estimator.predict(X_alg_test)
+        return self.metric(y_alg[test],y_pred)
+    
+    def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
+        estimator = clone(self.estimator)
+        
+        params_ = np.copy(params)
+        if self.logscale is not None:
+            params_[self.logscale] = np.exp(params_[self.logscale])
+            
+        # set parameters
+        for j in np.arange(len(self.param_names)):
+            tmp = params_[j]
+            if j in self.integer:
+                tmp = np.int(np.round(tmp))
+                
+            estimator.set_params(**{self.param_names[j]:tmp})
+            
+        time_eval = []
+        y_eval = []
+        
+        for ind in fold_ind:
+            start_time = time.time()
+            train,test = self.folds[ind]
+            y_eval.append(self._eval_model(estimator,train,test,X_alg,y_alg))
+            time_eval.append(time.time()-start_time)
+        
+        if return_average:
+            return np.mean(y_eval),np.sum(time_eval)
+        else:
+            return y_eval,time_eval
+    
+    def print_and_return(self,x_cand):
         est_cand = self.gp.predict(x_cand,return_std=False)
         if self.logscale is not None:
             x_cand[self.logscale] = np.exp(x_cand[self.logscale])
-            
-        # Final output message
+
         if self.verbose >=1 :
             print('')
             print('Number of candidates evaluated.....: %g' % self.X.shape[0])
@@ -224,6 +249,3 @@ class BayesOpt:
         results["x_cand"] = x_cand
         
         return results
-        
-    def term_crit(self):
-        return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa

@@ -7,13 +7,14 @@ import pickle
 from sklearn.base import clone
 from sklearn.model_selection import KFold
 
+from fcvopt.optimizers.BayesOpt import BayesOpt
 from fcvopt.models.agp import AGP
 from fcvopt.acquisition import LCB
 from fcvopt.util.samplers import lh_sampler
 from fcvopt.util.wrappers import scipy_minimize 
 from fcvopt.util.preprocess import zero_one_scale
 
-class FCVOpt:
+class FCVOpt(BayesOpt):
     '''
     Fast cross-validation for optimizing hyperparameters of supervised
     learning algorithms
@@ -90,85 +91,12 @@ class FCVOpt:
                  integer=[],return_prob=False,kernel="matern",kappa=2,
                  n_init=4,max_iter=30,verbose=0,seed=None,save_iter=None,
                  save_dir=None):
-        self.estimator = estimator
-        self.param_names = list(param_bounds.keys())
-        self.param_bounds = np.array(list(param_bounds.values()))
-        if logscale is not None:
-            self.param_bounds[logscale,:] = np.log(self.param_bounds[logscale,:])
-        self.logscale = logscale
-        self.integer = integer
-        self.metric = metric
-        self.return_prob = return_prob
         
-        self.rng = np.random.RandomState(seed=seed)
-        self.cv = KFold(n_splits=n_folds,shuffle=True,random_state=self.rng)
-        self.n_folds = n_folds
-        
-        self.kernel = kernel
-        self.n_init = n_init
-        self.max_iter = max_iter
-        self.verbose = verbose
-        self.kappa = kappa
-        
-        # if saving, then
-        self.save_iter = save_iter
-        self.save_dir = save_dir
-        
-        self.gp = None
-        self.X = None
-        self.y = []
-        self.eval_time = []
-        self.total_time = None
-        self.folds = None
+        super(FCVOpt,self).__init__(estimator,param_bounds,metric,n_folds,logscale,
+                                    integer,return_prob,kernel,kappa,n_init,
+                                    max_iter,verbose,seed,save_iter,save_dir)
     
-    def _eval_model(self,estimator,train,test,X_alg,y_alg):
-        # TODO: add support for unsupervised learning
-        # algorithm and corresponding metrics
-
-        if len(X_alg.shape) == 1:
-            estimator.fit(X_alg[train],y_alg[train])
-            X_alg_test = X_alg[test]
-        else:
-            estimator.fit(X_alg[train,:],y_alg[train])
-            X_alg_test = X_alg[test,:]
-
-        if self.return_prob:
-            y_pred = estimator.predict_proba(X_alg_test)
-        else:
-            y_pred = estimator.predict(X_alg_test)
-        return self.metric(y_alg[test],y_pred)
-    
-    def _fold_eval(self,params,fold_ind,X_alg,y_alg,return_average=False):
-        estimator = clone(self.estimator)
-        
-        params_ = np.copy(params)
-        if self.logscale is not None:
-            params_[self.logscale] = np.exp(params_[self.logscale])
-            
-        # set parameters
-        for j in np.arange(len(self.param_names)):
-            tmp = params_[j]
-            if j in self.integer:
-                tmp = np.int(np.round(tmp))
-                
-            estimator.set_params(**{self.param_names[j]:tmp})
-            
-        time_eval = []
-        y_eval = []
-        
-        for ind in fold_ind:
-            start_time = time.time()
-            train,test = self.folds[ind]
-            y_eval.append(self._eval_model(estimator,train,test,X_alg,y_alg))
-            time_eval.append(time.time()-start_time)
-        
-        if return_average:
-            return np.mean(y_eval),np.sum(time_eval)
-        else:
-            return y_eval,time_eval
-        
-            
-    def fit(self,X_alg,y_alg):
+    def run(self,X_alg,y_alg):
         '''
         Optimize hyperparameters of the specfied learning algorithm on 
         the given dataset
@@ -250,7 +178,7 @@ class FCVOpt:
                                     np.var(self.gp.mu_))
             
             ########## Find incumbent ##########
-            self.X_inc[i,:],self.y_inc[i],_ = self.gp.get_incumbent()
+            self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
             # converting to [0,1] scale - to be used
             # in acqusition as an initial guess
@@ -263,24 +191,10 @@ class FCVOpt:
                 self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
             
             ########## Acquisition ##########
-            if self.acq is None:
-                self.acq = LCB(self.gp,kappa=self.kappa)
-            else:
-                self.acq.update(self.gp)
-            
-            # optimize LCB
-            acq_start = time.time()
-            x_cand,acq_cand = scipy_minimize(self.acq,
-                                             x_inc,
-                                             np.zeros((n_dim,)),
-                                             np.ones((n_dim,)),
-                                             rng = self.rng,
-                                             n_restarts=9)
-            self.acq_time[i] = time.time()-acq_start
-            
+            # acquisition function optimization - find candidate
+            x_cand, acq_cand = self._acquistion(x_inc,i)
             
             # checking if point is close to existing design points
-            x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
             dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
             new_point = 1
@@ -303,10 +217,9 @@ class FCVOpt:
             ########## Saving progress to disk ##########
             if self.save_iter is not None:
                 if (i+1)%self.save_iter == 0:
-                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
-                    with open(fname,"wb") as f:
-                        pickle.dump(self,f)
-            
+                    filepath = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    self.save_to_pickle(filepath)
+                
             ########## Evaluate new configurations ##########
             if i < self.max_iter-1:
                 # evaluate new configurations to be evaluted 
@@ -332,35 +245,10 @@ class FCVOpt:
                     self.eval_time[point_index].extend(time_cand)
                     self.f_list[point_index].extend(f_cand)
         
-        ########## Tidying up ##########
         self.total_time = time.time()-start_time
-        est_cand = self.gp.predict(x_cand,return_std=False)
-        if self.logscale is not None:
-            x_cand[self.logscale] = np.exp(x_cand[self.logscale])
             
-        ########## Final output message ##########
-        if self.verbose >=1 :
-            print('')
-            print('Number of candidates evaluated.....: %g' % self.X.shape[0])
-            print('Number of folds evaluated..........: %g' % self.gp.y.shape[0])
-            print('Estimated obj at incumbent.........: %g' % self.y_inc[-1])
-            print('Estimated obj at candidate.........: %g' % est_cand)
-            print('')
-            print('Incumbent at termination:')
-            print(self.X_inc[-1,:])
-            print('')
-            print('Candidate at termination:')
-            print(x_cand)
-        
-        
-        ########## Return acqusision and candidate as output ##########
-        results = dict()
-        results["x_best"] = self.X_inc[-1,:]
-        results["f_best"] = self.y_inc[-1]
-        results["acq_cand"] = self.acq_vec[-1]
-        results["x_cand"] = x_cand
-        
-        return results
+        # Final output message
+        return self.print_and_return(x_cand)
     
     def _fold_pick(self,x_cand,new_point,point_index,n_alg):
         """
@@ -409,13 +297,6 @@ class FCVOpt:
         # folds from the original partition are not exhausted 
         f_cand= f_set[np.argmin(self.gp._fold_var(x_cand,f_set))]
         return [f_cand]
-    
-    def term_crit(self):
-        """
-        Returns an array of termination metrics at the incumbent
-        of each iteration
-        """
-        return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
     
     def resume(self,X_alg,y_alg):
         '''
@@ -471,7 +352,7 @@ class FCVOpt:
                                     np.var(self.gp.mu_))
             
             ########## Find incumbent ##########
-            self.X_inc[i,:],self.y_inc[i],_ = self.gp.get_incumbent()
+            self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
             
             # converting to [0,1] scale - to be used
             # in acqusition as an initial guess
@@ -521,9 +402,8 @@ class FCVOpt:
             ########## Saving progress to disk ##########
             if self.save_iter is not None:
                 if (i+1)%self.save_iter == 0:
-                    fname = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
-                    with open(fname,"wb") as f:
-                        pickle.dump(self,f)
+                    filepath = os.path.join(self.save_dir,"iter_"+str(i)+".pkl")
+                    self.save_to_pickle(filepath)
             
             ########## Evaluate new configurations ##########
             if i < self.max_iter-1:
@@ -550,32 +430,5 @@ class FCVOpt:
                     self.eval_time[point_index].extend(time_cand)
                     self.f_list[point_index].extend(f_cand)
         
-        ########## Tidying up ##########
-        #self.total_time = time.time()-start_time
-        est_cand = self.gp.predict(x_cand,return_std=False)
-        if self.logscale is not None:
-            x_cand[self.logscale] = np.exp(x_cand[self.logscale])
-            
-        ########## Final output message ##########
-        if self.verbose >=1 :
-            print('')
-            print('Number of candidates evaluated.....: %g' % self.X.shape[0])
-            print('Number of folds evaluated..........: %g' % self.gp.y.shape[0])
-            print('Estimated obj at incumbent.........: %g' % self.y_inc[-1])
-            print('Estimated obj at candidate.........: %g' % est_cand)
-            print('')
-            print('Incumbent at termination:')
-            print(self.X_inc[-1,:])
-            print('')
-            print('Candidate at termination:')
-            print(x_cand)
-        
-        
-        ########## Return acqusision and candidate as output ##########
-        results = dict()
-        results["x_best"] = self.X_inc[-1,:]
-        results["f_best"] = self.y_inc[-1]
-        results["acq_cand"] = self.acq_vec[-1]
-        results["x_cand"] = x_cand
-        
-        return results
+        # Final output message
+        return self.print_and_return(x_cand)
