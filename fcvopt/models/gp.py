@@ -5,11 +5,12 @@ import warnings
 from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
+from fcvopt.models.basemodel import BaseModel
 from fcvopt.util.gp_utils import kernel_inv
 from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.priors.model_priors import GPPrior
 
-class GP:
+class GP(BaseModel):
     """
     Gaussian process model that uses MCMC sampling to marginalize over
     the hyper-parameters. 
@@ -51,10 +52,10 @@ class GP:
     
     Attributes
     -------------
-    X_train: array, shape = (n_samples,n_dim):
+    X: array, shape = (n_samples,n_dim):
         Feature values in training data (scaled to the 0-1 hypercube)
         
-    y_train : array, shape = (n_samples,)
+    y : array, shape = (n_samples,)
         Target values in training data 
         
     k1: kernel object 
@@ -80,12 +81,12 @@ class GP:
         in hypers
         
     Kinv_: list, length = n_hypers
-        List of inverse covariance kernel in ``X_train`` corresponding to
+        List of inverse covariance kernel in ``.X`` corresponding to
         the samples in hypers. Shape of each array is (n_samples,n_samples)
         
     Kinv_y_: list, length = n_hypers
         List of dot-products of the invariance covariance kernels
-        corresponding to the samples in hypers and `y_train`. 
+        corresponding to the samples in hypers and `.y`. 
         (Used for prediction)
         
     p0: array, shape = (n_hypers,n_features+3)
@@ -95,6 +96,7 @@ class GP:
     def __init__(self,kernel,lower,upper,n_hypers=30,
                  chain_length = 100,burnin_length=100,
                  prior=None,rng=None):
+        super(GP,self).__init__()
         if rng is None:
             self.rng = np.random.RandomState(np.random.randint(0,2e+4))
         elif type(rng) is int:
@@ -108,12 +110,12 @@ class GP:
         self.n_hypers = n_hypers
         self.chain_length = chain_length
         self.burnin_length = burnin_length
-        
         self.prior = prior
-        self.X_train = None
-        self.y = None
         self.burned = False
         self.eps = 1e-8
+
+        # quantity not needed for GP but initialized for inheritance later
+        self.U = None
         
     def fit(self,X,y):
         '''
@@ -130,25 +132,20 @@ class GP:
         
         '''
         # data - appropriate transformations
-        self.X_train,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
+        self.X,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
         if type(y) is list:
-            self.y_train = np.array(y)
+            self.y = np.array(y)
         else:
-            self.y_train = y
+            self.y = y
         
         # define kernel structure 
-        self.n_dim = self.X_train.shape[1]
-        if self.kernel == "gaussian":
-            kernel_ls= RBF(np.ones(self.n_dim))
-        elif self.kernel == "matern":
-            kernel_ls = Matern(np.ones(self.n_dim),nu=2.5)
-            
+        kernel_ls = self._initialize_kernel_ls()
         self.k1 = kernel_ls*C(1.0) + WhiteKernel(0.01)
           
         # initialize prior
-        y_min = np.min(self.y_train) # mean
-        y_max = np.max(self.y_train) # mean
-        y_scale = np.std(self.y_train) # std dev
+        y_min = np.min(self.y) # mean
+        y_max = np.max(self.y) # mean
+        y_scale = np.std(self.y) # std dev
         if self.prior is None:
             self.prior = GPPrior(self.n_dim,y_min,y_max,y_scale,self.rng)
         
@@ -180,9 +177,19 @@ class GP:
             self.k1_.append(k1_)
             self.Kinv_.append(Kinv)
             self.Kinv_y_.append(Kinv_y)
-            
+        
+        self.is_trained = True
         return self
-            
+        
+    def _initialize_kernel_ls(self):
+        self.n_dim = self.X.shape[1]
+        if self.kernel == "gaussian":
+            kernel_ls= RBF(np.ones(self.n_dim))
+        elif self.kernel == "matern":
+            kernel_ls = Matern(np.ones(self.n_dim),nu=2.5)
+        return kernel_ls
+
+
     def _return_kernels(self,theta):
         mu_ = theta[0]
         k1_ = self.k1.clone_with_theta(theta[1:])
@@ -207,11 +214,11 @@ class GP:
         mu_,k1_ = self._return_kernels(theta)
             
         try:
-            Kinv,ldet_K = kernel_inv(k1_,self.X_train,self.eps,True)
+            Kinv,ldet_K = kernel_inv(k1_,self.X,self.eps,True)
         except np.linalg.LinAlgError:
             return -np.inf
         
-        y_train = np.copy(self.y_train)-mu_
+        y_train = np.copy(self.y)-mu_
 
         # Compute log-likelihood - not returning constant term
         log_likelihood = -0.5 * np.dot(y_train,Kinv.dot(y_train)) - 0.5*ldet_K
@@ -235,14 +242,17 @@ class GP:
         '''
         if np.any(theta<-15) or np.any(theta>15):
             return -np.inf
-        log_lik = self.log_likelihood(theta)
+        
         log_prior = self.prior.lnpdf(theta)
         
-        if log_lik is np.NaN:
-            print("Log-Likelhood compromised")
+        if np.isinf(log_prior):
+            return -np.inf
         
-        if log_prior is np.NaN:
-            print("Log-prior compromised")
+        log_lik = self.log_likelihood(theta)
+        
+        if np.isnan(log_lik):
+            print(theta)
+            print("Log-Likelhood compromised")
         
         return log_lik + log_prior
     
@@ -254,11 +264,11 @@ class GP:
         mu_,k1_ = self._return_kernels(theta)
             
         try:
-            Kinv,_ = kernel_inv(k1_,self.X_train,self.eps,False)
+            Kinv,_ = kernel_inv(k1_,self.X,self.eps,False)
         except np.linalg.LinAlgError:
             return -np.inf
         
-        y_train = np.copy(self.y_train)-mu_
+        y_train = np.copy(self.y)-mu_
         Kinv_y = Kinv.dot(y_train)
         
         return k1_,Kinv,Kinv_y
@@ -313,7 +323,11 @@ class GP:
             return y_mean
         
     def _predict_i(self,X,i,return_std=True,return_cov=False):
-        K_trans = self.k1_[i](X, self.X_train)
+        K_trans = self.k1_[i](X, self.X)
+        if self.U is not None:
+            # while not needed here, this is needed for
+            # the AGP class which derives from it
+            K_trans = K_trans * self.U.T 
         y_mean = self.mu_[i] + K_trans.dot(self.Kinv_y_[i])
         
         if return_cov:
@@ -348,8 +362,8 @@ class GP:
         y_inc: float
             predicted value at the minima
         """
-        y_mean = self.predict(self.X_train,scaled=True,return_std=False)
+        y_mean = self.predict(self.X,scaled=True,return_std=False)
         inc_index = np.argmin(y_mean)
-        X_inc = zero_one_rescale(self.X_train[inc_index,:].copy(),
+        X_inc = zero_one_rescale(self.X[inc_index,:].copy(),
                                  self.lower,self.upper)
-        return X_inc,y_mean[inc_index]
+        return X_inc,y_mean[inc_index],inc_index
