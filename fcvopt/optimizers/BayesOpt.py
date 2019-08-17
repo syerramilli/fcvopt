@@ -31,9 +31,6 @@ class BayesOpt:
         self.rng = np.random.RandomState(seed=seed)
         self.cv = KFold(n_splits=n_folds,shuffle=True,random_state=self.rng)
         self.n_folds = n_folds
-            
-        if hasattr(self.estimator,"random_state"):
-            self.estimator.random_state = self.rng
         
         self.kernel = kernel
         self.n_init = n_init
@@ -210,7 +207,7 @@ class BayesOpt:
         if self.verbose >=1 :
             print('')
             print('Number of candidates evaluated.....: %g' % self.X.shape[0])
-            print('Number of folds evaluated..........: %g' % self.gp.y_train.shape[0])
+            print('Number of folds evaluated..........: %g' % self.gp.y.shape[0])
             print('Estimated obj at incumbent.........: %g' % self.y_inc[-1])
             print('Estimated obj at candidate.........: %g' % est_cand)
             print('')
