@@ -20,7 +20,9 @@ class BayesOpt:
                  save_dir=None):
         self.estimator = estimator
         self.param_names = list(param_bounds.keys())
-        self.param_bounds = np.array(list(param_bounds.values()))
+        self.param_bounds = np.array(list(param_bounds.values()),
+                                     dtype = np.float
+                                    )
         if logscale is not None:
             self.param_bounds[logscale,:] = np.log(self.param_bounds[logscale,:])
         self.logscale = logscale
@@ -48,6 +50,10 @@ class BayesOpt:
         self.eval_time = []
         self.total_time = None
         self.folds = None
+
+        # Not needed in regular Bayesian optimization
+        # but needed in FCVOpt
+        self.f_list = None
         
     def run(self,X_alg,y_alg,fold_index=None):
         
@@ -102,21 +108,8 @@ class BayesOpt:
                     ('iter', 'f_best', 'acq_best',"sigma_f")
         
         for i in range(self.max_iter):
-            mcmc_start = time.time()
-            self.gp.fit(self.X,self.y)
-            self.mcmc_time[i] = time.time()-mcmc_start
-            
-            self.sigma_f_vec[i] = \
-                            np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-2]) \
-                                             for i in range(self.gp.n_hypers)]) + \
-                                    np.var(self.gp.mu_))
-            self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
-            x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
-                                       self.param_bounds[:,0],
-                                       self.param_bounds[:,1])
-            
-            if self.logscale is not None:
-                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
+            # Fit GP model and get incumbent
+            x_inc = self._fitgp_and_inc(i)
             
             # acquisition function optimization - find candidate
             x_cand, acq_cand = self._acquistion(x_inc,i)
@@ -154,6 +147,35 @@ class BayesOpt:
     def term_crit(self):
         return (self.y_inc-self.acq_vec)/self.sigma_f_vec/self.acq.kappa
     
+    def _fitgp_and_inc(self,i):
+        mcmc_start = time.time()
+        if self.f_list is not None:
+            self.gp.fit(self.X,self.y,self.f_list)
+        else:
+            self.gp.fit(self.X,self.y)
+        self.mcmc_time[i] = time.time()-mcmc_start
+        
+        
+        self.sigma_f_vec[i] = \
+                        np.sqrt(np.mean([np.exp(self.gp.k1_[j].theta[self.gp.n_dim]) \
+                                        for j in range(self.gp.n_hypers)]) + \
+                                np.var(self.gp.mu_))
+        
+        ########## Find incumbent ##########
+        self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
+        
+        # converting to [0,1] scale - to be used
+        # in acqusition as an initial guess
+        x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
+                                self.param_bounds[:,0],
+                                self.param_bounds[:,1])
+        
+        # storing incumbent in the original scale
+        if self.logscale is not None:
+            self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
+
+        return x_inc        
+
     def _acquistion(self,x_inc,i):
         # initialize acqusition function
         if self.acq is None:

@@ -119,8 +119,9 @@ class FCVOpt(BayesOpt):
             # Generate fold partition and assign folds at random
             # to the initial configurations
             self.folds = [ind for ind in self.cv.split(X_alg)]
-            self.f_list =[self.rng.choice(self.cv.n_splits,1,
-                                           replace=False).tolist() for _ in range(self.n_init)]
+            self.f_list = [self.rng.choice(self.cv.n_splits,1).tolist()] *self.n_init
+            # self.f_list =[self.rng.choice(self.cv.n_splits,1,
+            #                                replace=False).tolist() for _ in range(self.n_init)]
             
             # evaluate initial hyperparameter configurations
             for i in np.arange(self.n_init):
@@ -159,29 +160,8 @@ class FCVOpt(BayesOpt):
         
         for i in range(self.max_iter):
             
-            ########## "Fit" AGP model ########## 
-            mcmc_start = time.time()
-            self.gp.fit(self.X,self.y,self.f_list)
-            self.mcmc_time[i] = time.time()-mcmc_start
-            
-            
-            self.sigma_f_vec[i] = \
-                            np.sqrt(np.mean([np.exp(self.gp.k1_[i].theta[-1]) \
-                                             for i in range(self.gp.n_hypers)]) + \
-                                    np.var(self.gp.mu_))
-            
-            ########## Find incumbent ##########
-            self.X_inc[i,:],self.y_inc[i] = self.gp.get_incumbent()
-            
-            # converting to [0,1] scale - to be used
-            # in acqusition as an initial guess
-            x_inc,_,_ = zero_one_scale(self.X_inc[i,:],
-                                       self.param_bounds[:,0],
-                                       self.param_bounds[:,1])
-            
-            # storing incumbent in the original scale
-            if self.logscale is not None:
-                self.X_inc[i,self.logscale] = np.exp(self.X_inc[i,self.logscale])
+            ########## "Fit" AGP model and get incumbent ########## 
+            x_inc = self._fitgp_and_inc(i)
             
             ########## Acquisition ##########
             # acquisition function optimization - find candidate
