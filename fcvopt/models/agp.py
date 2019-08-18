@@ -55,9 +55,6 @@ class AGP(GP):
     y: array, (n_obs,)
         Flattened taget values
         
-    f_list: list
-        Fold identities
-        
     k1: kernel object 
         The kernel with the specified structure (not used for prediction)
         
@@ -102,14 +99,12 @@ class AGP(GP):
         super(AGP,self).__init__(kernel,lower,upper,n_hypers,
                                  chain_length,burnin_length,
                                  prior,rng)
-        self.f_list = None
         
     def fit(self,X,y_list,f_list):
         
         # data
         self.X,self.lower,self.upper = zero_one_scale(X,self.lower,self.upper)
         self.y = np.array([subitem for item in y_list for subitem in item])
-        self.f_list = f_list
         
         # kernels involved
         kernel_ls = self._initialize_kernel_ls()

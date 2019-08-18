@@ -1,5 +1,3 @@
-import numpy as np
-
 class BaseModel(object):
     '''
     Base class for all models
@@ -12,11 +10,6 @@ class BaseModel(object):
     
     def fit(self,X,y):
         pass
-    
-    def update(self,X,y):
-        self.X = np.append(self.X,X,axis=0)
-        self.y = np.append(self.y,y,axis=0)
-        return self.fit(X,y)
     
     def predict(self,X):
         pass
