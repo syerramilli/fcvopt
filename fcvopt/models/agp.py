@@ -211,8 +211,10 @@ class AGP(GP):
         inner = Sigma_n_inv + tmp * self.U
         inner_chol = cholesky(inner,check_finite=False)
         tmp2 = cho_solve((inner_chol,False),tmp)
+
+        # Woodbury identity
         ldet_K += 2*np.sum(np.log(np.diag(inner_chol)))
-        K_inv = Ainv - tmp.T.dot(tmp2)
+        K_inv = Ainv - tmp.T.dot(tmp2) 
         
         y_train = np.copy(self.y)-mu_
 

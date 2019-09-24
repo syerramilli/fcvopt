@@ -120,8 +120,6 @@ class FCVOpt(BayesOpt):
             # to the initial configurations
             self.folds = [ind for ind in self.cv.split(X_alg)]
             self.f_list = [self.rng.choice(self.cv.n_splits,1).tolist()] *self.n_init
-            # self.f_list =[self.rng.choice(self.cv.n_splits,1,
-            #                                replace=False).tolist() for _ in range(self.n_init)]
             
             # evaluate initial hyperparameter configurations
             for i in np.arange(self.n_init):
