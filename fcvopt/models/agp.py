@@ -220,6 +220,8 @@ class AGP(GP):
         
         Ainv,tmp2 = matrix_inv(A,self.eps,True)
         ldet_K += tmp2
+        del A
+        del tmp2
 
         # implementing permutation P^T.Ainv.P
         for l in range(self.N):
@@ -234,7 +236,9 @@ class AGP(GP):
 
         # Woodbury identity
         ldet_K += 2*np.sum(np.log(np.diag(inner_chol)))
-        K_inv = Ainv - tmp.T.dot(tmp2) 
+        K_inv = Ainv - tmp.T.dot(tmp2)
+        del tmp
+        del tmp2 
         
         y_train = np.copy(self.y)-mu_
 
@@ -257,18 +261,32 @@ class AGP(GP):
         except np.linalg.LinAlgError:
             return -np.inf
         
+        # n_folds = len(self.X_list)
+        # Ainv = np.zeros((self.N,self.N))
+        # p = 0
+        # for k in range(n_folds):
+        #     try:
+        #         tmp = kernel_inv(k2_,self.X_list[k],self.eps,False)
+        #     except np.linalg.LinAlgError:
+        #         return -np.inf
+        #     n = self.X_list[k].shape[0]
+        #     ind = p + np.arange(n)
+        #     Ainv[ind[:,None],ind] = tmp
+        #     p += n
+
         n_folds = len(self.X_list)
-        Ainv = np.zeros((self.N,self.N))
+        A = np.zeros((self.N,self.N))
         p = 0
         for k in range(n_folds):
-            try:
-                tmp = kernel_inv(k2_,self.X_list[k],self.eps,False)
-            except np.linalg.LinAlgError:
-                return -np.inf
+            tmp = k2_(self.X_list[k])
             n = self.X_list[k].shape[0]
             ind = p + np.arange(n)
-            Ainv[ind[:,None],ind] = tmp
+            A[ind[:,None],ind] = tmp
             p += n
+            del tmp
+        
+        Ainv = matrix_inv(A,self.eps,False)
+        del A       
             
         # implementing permutation P^T.Ainv.P
         for l in range(self.N):
