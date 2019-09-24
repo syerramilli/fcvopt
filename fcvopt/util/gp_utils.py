@@ -22,3 +22,14 @@ def kernel_inv(kernel,X,eps,det=True):
         return K_inv,ldet_K
     else:
         return K_inv
+
+def matrix_inv(K,eps,det):
+    K[np.diag_indices_from(K)] += eps*K[0,0]
+    U = cholesky(K,check_finite=False)
+    K_inv = cho_solve((U,False),np.eye(U.shape[0]),check_finite=False)
+    
+    if det:
+        ldet_K = 2*np.sum(np.log(np.diag(U)))
+        return K_inv,ldet_K
+    else:
+        return K_inv
