@@ -8,7 +8,7 @@ from sklearn.gaussian_process.kernels import RBF, Matern,WhiteKernel
 from sklearn.gaussian_process.kernels import ConstantKernel as C
 
 from fcvopt.models.gp import GP
-from fcvopt.util.gp_utils import kernel_inv
+from fcvopt.util.gp_utils import kernel_inv, matrix_inv
 from fcvopt.util.preprocess import zero_one_scale, zero_one_rescale
 from fcvopt.priors.model_priors import AGPPrior
 
@@ -187,25 +187,45 @@ class AGP(GP):
         except np.linalg.LinAlgError:
             return -np.inf
         
+        # n_folds = len(self.X_list)
+        # Ainv = np.zeros((self.N,self.N))
+        # p = 0
+        # for k in range(n_folds):
+        #     try:
+        #         tmp,tmp2 = kernel_inv(k2_,self.X_list[k],self.eps,True)
+        #     except np.linalg.LinAlgError:
+        #         return -np.inf
+        #     n = self.X_list[k].shape[0]
+        #     ind = p + np.arange(n)
+        #     Ainv[ind[:,None],ind] = tmp
+        #     p += n
+        #     #ldet_K += tmp2
+        #
+        # # implementing permutation P^T.Ainv.P
+        # for l in range(self.N):
+        #     Ainv[:,l] = Ainv[self.PT,l]
+        # for l in range(self.N):
+        #     Ainv[l,:] = Ainv[l,self.PT] 
+
         n_folds = len(self.X_list)
-        Ainv = np.zeros((self.N,self.N))
+        A = np.zeros((self.N,self.N))
         p = 0
         for k in range(n_folds):
-            try:
-                tmp,tmp2 = kernel_inv(k2_,self.X_list[k],self.eps,True)
-            except np.linalg.LinAlgError:
-                return -np.inf
+            tmp = k2_(self.X_list[k])
             n = self.X_list[k].shape[0]
             ind = p + np.arange(n)
-            Ainv[ind[:,None],ind] = tmp
+            A[ind[:,None],ind] = tmp
             p += n
-            ldet_K += tmp2
+            del tmp
         
+        Ainv,tmp2 = matrix_inv(A,self.eps,True)
+        ldet_K += tmp2
+
         # implementing permutation P^T.Ainv.P
         for l in range(self.N):
             Ainv[:,l] = Ainv[self.PT,l]
         for l in range(self.N):
-            Ainv[l,:] = Ainv[l,self.PT]         
+            Ainv[l,:] = Ainv[l,self.PT]        
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp * self.U
