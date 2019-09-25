@@ -199,8 +199,8 @@ class AGP(GP):
         #     ind = p + np.arange(n)
         #     Ainv[ind[:,None],ind] = tmp
         #     p += n
-        #     #ldet_K += tmp2
-        #
+        #     ldet_K += tmp2
+        
         # # implementing permutation P^T.Ainv.P
         # for l in range(self.N):
         #     Ainv[:,l] = Ainv[self.PT,l]
@@ -272,6 +272,12 @@ class AGP(GP):
         #     ind = p + np.arange(n)
         #     Ainv[ind[:,None],ind] = tmp
         #     p += n
+            
+        # # implementing permutation P^T.Ainv.P
+        # for l in range(self.N):
+        #     Ainv[:,l] = Ainv[self.PT,l]
+        # for l in range(self.N):
+        #     Ainv[l,:] = Ainv[l,self.PT]            
 
         n_folds = len(self.X_list)
         A = np.zeros((self.N,self.N))
