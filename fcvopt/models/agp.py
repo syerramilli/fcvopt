@@ -218,16 +218,16 @@ class AGP(GP):
             p += n
             del tmp
         
+        # implementing permutation P^T.A.P
+        for l in range(self.N):
+            A[:,l] = A[self.PT,l]
+        for l in range(self.N):
+            A[l,:] = A[l,self.PT]   
+        
         Ainv,tmp2 = matrix_inv(A,self.eps,True)
         ldet_K += tmp2
         del A
-        del tmp2
-
-        # implementing permutation P^T.Ainv.P
-        for l in range(self.N):
-            Ainv[:,l] = Ainv[self.PT,l]
-        for l in range(self.N):
-            Ainv[l,:] = Ainv[l,self.PT]        
+        del tmp2     
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp * self.U
@@ -238,7 +238,6 @@ class AGP(GP):
         ldet_K += 2*np.sum(np.log(np.diag(inner_chol)))
         K_inv = Ainv - tmp.T.dot(tmp2)
         del tmp
-        del tmp2 
         
         y_train = np.copy(self.y)-mu_
 
@@ -285,14 +284,14 @@ class AGP(GP):
             p += n
             del tmp
         
+        # implementing permutation P^T.A.P
+        for l in range(self.N):
+            A[:,l] = A[self.PT,l]
+        for l in range(self.N):
+            A[l,:] = A[l,self.PT]  
+
         Ainv = matrix_inv(A,self.eps,False)
         del A       
-            
-        # implementing permutation P^T.Ainv.P
-        for l in range(self.N):
-            Ainv[:,l] = Ainv[self.PT,l]
-        for l in range(self.N):
-            Ainv[l,:] = Ainv[l,self.PT]
         
         tmp = self.U.T.dot(Ainv)
         inner = Sigma_n_inv + tmp * self.U
