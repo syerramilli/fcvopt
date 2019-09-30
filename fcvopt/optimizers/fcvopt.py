@@ -168,7 +168,7 @@ class FCVOpt(BayesOpt):
             x_cand, acq_cand = self._acquistion(x_inc,i)
             
             # checking if point is close to existing design points
-            dist_cand = np.sum(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
+            dist_cand = np.mean(np.abs(self.X-x_cand)/(self.gp.upper-self.gp.lower),
                                axis=1)
             new_point = 1
             point_index = np.argmin(dist_cand)
