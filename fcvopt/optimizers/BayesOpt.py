@@ -190,7 +190,7 @@ class BayesOpt:
                                         np.zeros((self.gp.n_dim,)),
                                         np.ones((self.gp.n_dim,)),
                                         rng = self.rng,
-                                        n_restarts=9)
+                                        n_restarts=8+self.gp.n_dim)
         self.acq_time[i] = time.time()-acq_start
         x_cand = self.gp.lower + (self.gp.upper-self.gp.lower)*x_cand
 
