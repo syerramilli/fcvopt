@@ -66,10 +66,6 @@ class BayesOpt:
             else:
                 self.X = self.n_init
                 self.n_init = self.X.shape[0]
-                
-            if len(self.integer) > 0:
-                    for j in self.integer:
-                        self.X[:,j] = np.round(self.X[:,j])
                         
             self.folds = [ind for ind in self.cv.split(X_alg)]
             # evaluate all folds
