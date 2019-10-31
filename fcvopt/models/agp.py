@@ -320,9 +320,9 @@ class AGP(GP):
             for i in range(self.n_hypers):
                 k1_x = self.k1_[i](x_copy,self.X) * self.U.T
     
-                k2_x = np.hstack([self.k2_[i](x_copy,self.X_list[i]) if fold_id == group \
-                                  else np.zeros((1,self.X_list[i].shape[0])) \
-                                  for i,group in enumerate(self.groups)])
+                k2_x = np.hstack([self.k2_[i](x_copy,self.X_list[j]) if fold_id == group \
+                                  else np.zeros((1,self.X_list[j].shape[0])) \
+                                  for j,group in enumerate(self.groups)])
                 
                 #r = k1_x + k2_x.dot(self.P.T)
                 r = k1_x + k2_x[0:1,self.P]
