@@ -1,1 +1,1 @@
-# fcvopt
+# fcvopt: Fractional cross-validation for hyperparameter optimization
