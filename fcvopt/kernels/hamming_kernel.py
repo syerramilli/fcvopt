@@ -2,6 +2,8 @@ import torch
 from gpytorch.kernels import Kernel
 from gpytorch.constraints import Interval
 
+from ..priors import BetaPrior
+
 class HammingKernel(Kernel):
     has_lengthscale=False
     def __init__(self,active_dims,**kwargs):
@@ -15,6 +17,12 @@ class HammingKernel(Kernel):
         )
 
         self.register_constraint('raw_rho',Interval(0.,1.))
+        self.register_prior(
+            'rho_prior',
+            BetaPrior(1.,5.),
+            param_or_closure=lambda: self.rho,
+            setting_closure= lambda v: self._set_rho(v)
+        )
     
     @property
     def rho(self):
