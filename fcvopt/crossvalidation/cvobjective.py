@@ -11,6 +11,7 @@ class CVObjective:
         loss_metric:Callable,
         n_splits:int=5,
         n_repeats:int=5,
+        holdout:bool=False,
         task:str='regression',
         scale_output:bool=False,
         input_preprocessor=None,
@@ -22,6 +23,9 @@ class CVObjective:
         self.loss_metric = loss_metric
         self.cv = RepeatedKFold(n_splits=n_splits,n_repeats=n_repeats)
         self.train_test_splits = list(self.cv.split(X)) # initial splits
+        self.holdout = holdout
+        if self.holdout:
+            self.train_test_splits = self.train_test_splits[0:1]
 
         if 'classification' in self.task:
             # encoded categorical outputs
@@ -30,10 +34,20 @@ class CVObjective:
         self.input_preprocessor = input_preprocessor
         self.num_jobs = num_jobs
     
+    def construct_model(self,params,**kwargs):
+        pass
+
     def _fit_and_test(self,params,train_index,test_index):
         pass
 
-    def cvloss(self,params:Dict,fold_idxs:List[int]=[0],all:bool=False):
+    def cvloss(self,params:Dict,fold_idxs:Optional[List[int]]=None,all:bool=False):
+        if fold_idxs is None:
+            if self.holdout:
+                fold_idxs = [0]
+            else:
+                # default: perform full replicated K-fold CV
+                fold_idxs = np.arange(self.cv.get_n_splits())
+
         fold_losses = Parallel(n_jobs=self.num_jobs)(
             delayed(self._fit_and_test)(
                 params,self.train_test_splits[idx][0],self.train_test_splits[idx][1]
