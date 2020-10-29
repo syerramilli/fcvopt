@@ -1,5 +1,4 @@
 import torch
-import gpytorch
 from typing import Optional,Tuple,Union
 from ..acquisition.acquisition import AcquisitionFunction, AcquisitionFunctionMCMC
 from ..models.gpregression import GPR
@@ -7,10 +6,10 @@ from ..models.gpregression import GPR
 class LowerConfidenceBound(AcquisitionFunction):
     def __init__(
         self,
-        model:gpytorch.models.ExactGP,
+        model:GPR,
         kappa:Union[float,torch.Tensor]
     ) -> None:
-        super().__init__(model=model)
+        super().__init__(model=model,maximize=False)
         if not torch.is_tensor(kappa):
             kappa = torch.tensor(kappa)
         self.register_buffer('kappa',kappa)
@@ -23,10 +22,10 @@ class LowerConfidenceBound(AcquisitionFunction):
 class LowerConfidenceBoundMCMC(AcquisitionFunctionMCMC):
     def __init__(
         self,
-        model:gpytorch.models.ExactGP,
+        model:GPR,
         kappa:Union[float,torch.Tensor]
     ) -> None:
-        super().__init__(model=model)
+        super().__init__(model=model,maximize=False)
         if not torch.is_tensor(kappa):
             kappa = torch.tensor(kappa)
         self.register_buffer('kappa',kappa)

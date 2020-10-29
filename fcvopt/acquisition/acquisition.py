@@ -3,16 +3,17 @@ import gpytorch
 from typing import List
 
 class AcquisitionFunction(torch.nn.Module):
-    def __init__(self,model:gpytorch.models.ExactGP) -> None:
+    def __init__(self,model:gpytorch.models.ExactGP,maximize:bool=True) -> None:
         super().__init__()
         self.add_module('model',model)
+        self.maximize=maximize
     
     def forward(self,X:torch.Tensor) -> torch.Tensor:
         pass
 
 class AcquisitionFunctionMCMC(AcquisitionFunction):
-    def __init__(self,model:gpytorch.models.ExactGP) -> None:
-        super().__init__(model)
+    def __init__(self,model:gpytorch.models.ExactGP,maximize:bool=True) -> None:
+        super().__init__(model,maximize)
         self.num_samples = len(model.train_inputs[0])
 
 class MCAcquisitionFunctionWrapper(AcquisitionFunction):
