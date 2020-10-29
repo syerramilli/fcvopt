@@ -7,12 +7,14 @@ import gpytorch
 from ..models.gpregression import GPR
 from ..models.mcmc_utils import mcmc_run
 from ..kernels import Matern52Kernel
+from gpytorch.kernels import MaternKernel,RBFKernel
 from ..acquisition import LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 from ..configspace import ConfigurationSpace
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
+from copy import deepcopy
 
 class BayesOpt:
     def __init__(
@@ -28,17 +30,17 @@ class BayesOpt:
         self.obj = obj
         self.config = config
         
-        if kernel is None:
-            self.kernel=Matern52Kernel(
-                ard_num_dims=len(config.quant_index),
-                lengthscale_constraint = gpytorch.constraints.Positive(
-                    transform=torch.exp,
-                    inv_transform=torch.log
-                ),
-                lengthscale_prior = gpytorch.priors.GammaPrior(3.,6.)
-            )
-        else:
-            self.kernel = kernel
+        # if kernel is None:
+        #     self.kernel=Matern52Kernel(
+        #         ard_num_dims=len(config.quant_index),
+        #         lengthscale_constraint = gpytorch.constraints.Positive(
+        #             transform=torch.exp,
+        #             inv_transform=torch.log
+        #         ),
+        #         lengthscale_prior = gpytorch.priors.GammaPrior(3.,6.)
+        #     )
+        # else:
+        #     self.kernel = kernel
         
         self.kappa=kappa
         self.verbose=verbose
@@ -63,8 +65,8 @@ class BayesOpt:
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
-        output_header = '%6s %10s %10s %10s %9s' % \
-                    ('iter', 'f_inc_obs', 'f_inc_est','acq_cand',"sigma_f")
+        output_header = '%6s %10s %10s %10s %12s' % \
+                    ('iter', 'f_inc_obs', 'f_inc_est','acq_cand',"term_metric")
         for i in range(n_iter):
             # either initialize observations or evaluate the next candidate
             self._initialize(n_init)
@@ -80,21 +82,16 @@ class BayesOpt:
                 if i%10 == 0:
                     # print header every 19 iterations
                     print(output_header)
-                print('%6i %10.3e %10.3e %10.3e %9.3e' %\
+                term_metric = (self.f_inc_est[-1]-self.acq_vec[-1])/self.sigma_vec[-1]/self.kappa
+                print('%6i %10.3e %10.3e %10.3e %12.3e' %\
                       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
-                      self.acq_vec[-1],self.sigma_vec[-1]))
-            elif self.verbose == 1:
-                # printing updates evrry 10 iterations
-                if i%10==0:
-                    print('%6i %10.3e %10.3e %10.3e %9.3e' %\
-                      (i, self.f_inc_obs[-1],self.f_inc_est[-1],
-                      self.acq_vec[-1],self.sigma_vec[-1]))
+                      self.acq_vec[-1],term_metric))
         
         if self.verbose >= 1:
             est_cand = self.model.predict(
                 torch.tensor(self.confs_cand[-1].get_array())
                 .to(self.train_x)
-                .view(-1,1)
+                .view(1,-1)
             )
             print('')
             print('Number of candidates evaluated.....: %g' % len(self.train_confs))
@@ -116,11 +113,10 @@ class BayesOpt:
 
         return results
 
-
     def _initialize(self,n_init:Optional[int]=None):
         if self.train_confs is None:
             if n_init is None:
-                n_init = len(self.config) + 2
+                n_init = len(self.config.quant_index) + 1
             
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = self.config.latinhypercube_sample(n_init)
@@ -150,14 +146,18 @@ class BayesOpt:
         return conf.get_array(),y,eval_time
     
     def _fit_model_and_find_inc(self) -> None:
+        # if self.model is not None:
+        #     del self.model
+
         # declare model
         self.model = self._construct_model()
 
         start_time = time.time()
         _ = mcmc_run(
             model=self.model,
-            disable_progbar=False,
-            num_samples=100,
+            step_size=0.1,
+            disable_progbar=True,
+            num_samples=30,
             warmup_steps=100,
             num_model_samples=30
         )
@@ -174,11 +174,21 @@ class BayesOpt:
         self.f_inc_est.append(train_pred[fmin_index].item())
     
     def _construct_model(self):
+
+        kernel = Matern52Kernel(
+            ard_num_dims=len(self.config.quant_index),
+            lengthscale_constraint = gpytorch.constraints.Positive(
+                transform=torch.exp,
+                inv_transform=torch.log
+            ),
+            lengthscale_prior = gpytorch.priors.GammaPrior(3.,6.)
+        )
+
         return GPR(
             train_x = self.train_x,
             train_y = self.train_y,
-            correlation_kernel=self.kernel,
-            noise=1e-3,
+            correlation_kernel=kernel,
+            noise=1e-4,
             fix_noise=False
         ).double()
     
@@ -193,7 +203,7 @@ class BayesOpt:
         acqopt = AcqFunOptimizer(
             acq_fun=acqobj,
             ndim = len(self.config.quant_index),
-            num_starts = min(10,2*len(config.quant_index)),
+            num_starts = min(10,2*len(self.config.quant_index)),
             x0=self.confs_inc[-1].get_array(),
             num_jobs=1 # TODO: add support for parallelization
         )

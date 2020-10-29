@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize,Bounds
 from joblib import Parallel,delayed
 
-from ..util.samplers import lhsampler
+from ..util.samplers import lh_sampler
 
 class MultiStartOptimizer:
     '''
@@ -109,7 +109,7 @@ class MultiStartOptimizer:
         x_init: np.ndarray
             Matrix of starting points with each row representing one sample point
         '''
-        x_init = lhsampler(self.num_starts,self.lb,self.ub,self.rng)
+        x_init = lh_sampler(self.num_starts,self.lb,self.ub,self.rng)
         if self.x0 is not None:
             x_init = np.row_stack([
                 self.x0.T,x_init

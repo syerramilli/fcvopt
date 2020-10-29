@@ -4,7 +4,7 @@ import gpytorch
 from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import NormalPrior
+from gpytorch.priors import NormalPrior,LogNormalPrior
 from fcvopt.priors import HalfHorseshoePrior
 from typing import List
 
@@ -44,13 +44,14 @@ class GPR(ExactGP):
         if fix_noise:
             self.likelihood.raw_noise.requires_grad_(False)
         else:
-            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(1.0),'noise')
+            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
         
         # Modules
         self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
         self.covar_module = ScaleKernel(
             correlation_kernel,
-            outputscale_prior=gpytorch.priors.GammaPrior(2.,0.15)
+            outputscale_prior=LogNormalPrior(0.,1.),
+            outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
         )
     
     def forward(self,x):
@@ -66,7 +67,7 @@ class GPR(ExactGP):
         
         # determine if batched or not
         ndim = self.train_targets.ndim
-        if ndim > 1:
+        if ndim == 1:
             output = self(x)
         else:
             num_samples = self.train_targets.shape[0]
@@ -76,7 +77,7 @@ class GPR(ExactGP):
 
         # standard deviation may not always be needed
         if return_std:
-            out_var = self.y_std*output.variance
+            out_var = output.variance*self.y_std**2
             if (ndim > 1) and marginalize:
                 # matching the second moment of the Gaussian mixture
                 out_std = torch.sqrt(out_var.mean(axis=0)+out_mean.var(axis=0))
@@ -85,7 +86,7 @@ class GPR(ExactGP):
                 out_std = out_var.sqrt() 
             return out_mean,out_std
         
-        if ndim > 1 and marginalize:
+        if (ndim > 1) and marginalize:
             out_mean = out_mean.mean(axis=0)
 
         return out_mean

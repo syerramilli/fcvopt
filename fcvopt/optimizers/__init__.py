@@ -1,2 +1,1 @@
-from .BayesOpt import BayesOpt
-from .fcvopt import FCVOpt
+from .bayes_opt import BayesOpt

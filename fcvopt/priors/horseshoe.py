@@ -36,7 +36,7 @@ class HalfHorseshoePrior(Prior):
         # now need to delete to be able to register buffer
         del self.scale
         self.register_buffer("scale", scale)
-        self.register_buffer("lb", torch.tensor(1e-6))
+        self.register_buffer("lb", torch.tensor(1.1e-6))
         self._transform = None
 
     def log_prob(self, X):
@@ -47,8 +47,8 @@ class HalfHorseshoePrior(Prior):
         return torch.log((lb + ub) / 2)+torch.log(flag)
 
     def rsample(self, sample_shape=torch.Size([])):
-        local_shrinkage = HalfCauchy(1).rsample(self.scale.shape)
-        param_sample = HalfNormal(local_shrinkage * self.scale).rsample(sample_shape)
+        local_shrinkage = HalfCauchy(1).rsample(self.scale.shape).to(self.lb)
+        param_sample = HalfNormal(local_shrinkage * self.scale).rsample(sample_shape).to(self.lb)
         param_sample[param_sample<self.lb] = self.lb
         return param_sample
 
