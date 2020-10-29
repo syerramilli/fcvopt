@@ -58,7 +58,7 @@ class GPR(ExactGP):
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x,covar_x)
     
-    def predict(self,x,return_std=False):
+    def predict(self,x,return_std=False,marginalize=True):
         '''
         Returns the predictive mean and variance at the given points
         '''
@@ -77,7 +77,7 @@ class GPR(ExactGP):
         # standard deviation may not always be needed
         if return_std:
             out_var = self.y_std*output.variance
-            if ndim > 1:
+            if (ndim > 1) and marginalize:
                 # matching the second moment of the Gaussian mixture
                 out_std = torch.sqrt(out_var.mean(axis=0)+out_mean.var(axis=0))
                 out_mean = out_mean.mean(axis=0)
@@ -85,7 +85,7 @@ class GPR(ExactGP):
                 out_std = out_var.sqrt() 
             return out_mean,out_std
         
-        if ndim > 1:
+        if ndim > 1 and marginalize:
             out_mean = out_mean.mean(axis=0)
 
         return out_mean
