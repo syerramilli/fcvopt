@@ -3,14 +3,16 @@ import os
 import time
 import torch
 import gpytorch
+import warnings
 
 from ..models.gpregression import GPR
 from ..models.mcmc_utils import mcmc_run
-from ..kernels import Matern52Kernel
-from gpytorch.kernels import MaternKernel,RBFKernel
 from ..acquisition import LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 from ..configspace import ConfigurationSpace
+from ..priors import LogUniformPrior
+
+import fcvopt.kernels as kernels
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -21,7 +23,7 @@ class BayesOpt:
         self,
         obj:Callable,
         config:ConfigurationSpace,
-        kernel=None,
+        correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
         verbose:int=0.,
         save_iter:Optional[int]=None,
@@ -29,18 +31,9 @@ class BayesOpt:
     ):
         self.obj = obj
         self.config = config
-        
-        # if kernel is None:
-        #     self.kernel=Matern52Kernel(
-        #         ard_num_dims=len(config.quant_index),
-        #         lengthscale_constraint = gpytorch.constraints.Positive(
-        #             transform=torch.exp,
-        #             inv_transform=torch.log
-        #         ),
-        #         lengthscale_prior = gpytorch.priors.GammaPrior(3.,6.)
-        #     )
-        # else:
-        #     self.kernel = kernel
+        if correlation_kernel_class is None:
+            correlation_kernel_class = kernels.Matern52Kernel
+        self.correlation_kernel_class = getattr(kernels,correlation_kernel_class)
         
         self.kappa=kappa
         self.verbose=verbose
@@ -62,6 +55,8 @@ class BayesOpt:
         self.fit_time = []
         self.acqopt_time = []
         self.obj_eval_time = []
+        # mcmc parameters
+        self.initial_params = None
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
@@ -146,18 +141,17 @@ class BayesOpt:
         return conf.get_array(),y,eval_time
     
     def _fit_model_and_find_inc(self) -> None:
-        # if self.model is not None:
-        #     del self.model
-
-        # declare model
+        # construct model
         self.model = self._construct_model()
 
         start_time = time.time()
-        _ = mcmc_run(
+        self.initial_params = mcmc_run(
             model=self.model,
             step_size=0.1,
+            adapt_step_size=False,
+            initial_params=self.initial_params,
             disable_progbar=True,
-            num_samples=30,
+            num_samples=100,
             warmup_steps=100,
             num_model_samples=30
         )
@@ -167,21 +161,22 @@ class BayesOpt:
         self.sigma_vec.append(self._calculate_prior_sigma())
 
         # find incumbent
-        train_pred = self.model.predict(self.train_x)   
+        with warnings.catch_warnings(): 
+            warnings.simplefilter(action='ignore',category=gpytorch.utils.warnings.GPInputWarning)
+            train_pred = self.model.predict(self.train_x)  
         fmin_index = train_pred.argmin().item()
         self.confs_inc.append(self.train_confs[fmin_index])
         self.f_inc_obs.append(self.train_y[fmin_index].item())
         self.f_inc_est.append(train_pred[fmin_index].item())
     
     def _construct_model(self):
-
-        kernel = Matern52Kernel(
+        kernel = self.correlation_kernel_class(
             ard_num_dims=len(self.config.quant_index),
             lengthscale_constraint = gpytorch.constraints.Positive(
                 transform=torch.exp,
                 inv_transform=torch.log
             ),
-            lengthscale_prior = gpytorch.priors.GammaPrior(3.,6.)
+            lengthscale_prior = LogUniformPrior(0.01,10.)
         )
 
         return GPR(
