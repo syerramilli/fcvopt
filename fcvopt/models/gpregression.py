@@ -4,8 +4,8 @@ import gpytorch
 from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import NormalPrior,LogNormalPrior
-from fcvopt.priors import HalfHorseshoePrior
+from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
+from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior
 from typing import List
 
 class GPR(ExactGP):
@@ -23,7 +23,7 @@ class GPR(ExactGP):
     
         # initializing likelihood
         likelihood = gpytorch.likelihoods.GaussianLikelihood(
-            noise_constraint=GreaterThan(1e-6,transform=torch.exp,inv_transform=torch.log),
+            noise_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
         )
 
         # standardizing the response variable
@@ -44,7 +44,7 @@ class GPR(ExactGP):
         if fix_noise:
             self.likelihood.raw_noise.requires_grad_(False)
         else:
-            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
+            self.likelihood.register_prior('noise_prior',LogUniformPrior(1e-6,2.),'noise')
         
         # Modules
         self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
