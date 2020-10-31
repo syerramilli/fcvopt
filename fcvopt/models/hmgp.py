@@ -5,6 +5,7 @@ from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
 from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
+from ..models.gpregression import GPR
 from ..priors import HalfHorseshoePrior,LogUniformPrior
 from ..kernels import HammingKernel
 
@@ -58,7 +59,7 @@ class HMGP(ExactGP):
         self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
 
         # covariance modules - there are two modules one for f and one for delta
-        self.covar_module_f = ScaleKernel(
+        self.covar_module = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
                 lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
@@ -82,7 +83,7 @@ class HMGP(ExactGP):
     
     def forward(self,x,fold_idx):
         mean_x = self.mean_module(x)
-        covar_f = self.covar_module_f(x)
+        covar_f = self.covar_module(x)
         covar_delta = self.covar_module_delta_fold(fold_idx).mul(self.corr_module_delta_x(x))
         covar = covar_f + covar_delta
         return gpytorch.distributions.MultivariateNormal(mean_x,covar)
@@ -90,7 +91,7 @@ class HMGP(ExactGP):
     def forward_f(self,x):
         # Only with GP f
         mean_x = self.mean_module(x)
-        covar_x = self.covar_module_f(x)
+        covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x,covar_x)
 
     def predict(self,x,return_std=False,marginalize=True):

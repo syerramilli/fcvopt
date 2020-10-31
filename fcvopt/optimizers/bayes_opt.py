@@ -170,19 +170,10 @@ class BayesOpt:
         self.f_inc_est.append(train_pred[fmin_index].item())
     
     def _construct_model(self):
-        kernel = self.correlation_kernel_class(
-            ard_num_dims=len(self.config.quant_index),
-            lengthscale_constraint = gpytorch.constraints.Positive(
-                transform=torch.exp,
-                inv_transform=torch.log
-            ),
-            lengthscale_prior = LogUniformPrior(0.01,10.)
-        )
-
         return GPR(
             train_x = self.train_x,
             train_y = self.train_y,
-            correlation_kernel=kernel,
+            correlation_kernel_class=self.correlation_kernel_class,
             noise=1e-4,
             fix_noise=False
         ).double()

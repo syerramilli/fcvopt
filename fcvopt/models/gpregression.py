@@ -16,7 +16,7 @@ class GPR(ExactGP):
         self,
         train_x:torch.Tensor,
         train_y:torch.Tensor,
-        correlation_kernel,
+        correlation_kernel_class,
         noise:float=1e-4,
         fix_noise:bool=False
     ) -> None:
@@ -49,7 +49,11 @@ class GPR(ExactGP):
         # Modules
         self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
         self.covar_module = ScaleKernel(
-            correlation_kernel,
+            base_kernel = correlation_kernel_class(
+                ard_num_dims=train_x[0].size(1),
+                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
+                lengthscale_prior=LogUniformPrior(0.01,10.)
+            ),
             outputscale_prior=LogNormalPrior(0.,1.),
             outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
         )
@@ -71,7 +75,7 @@ class GPR(ExactGP):
             output = self(x)
         else:
             num_samples = self.train_targets.shape[0]
-            output = self(x.unsqueeze(0).repeat(num_samples,1,1))
+            output = self._predict(x.unsqueeze(0).repeat(num_samples,1,1))
         
         out_mean = self.y_mean + self.y_std*output.mean
 
@@ -90,3 +94,8 @@ class GPR(ExactGP):
             out_mean = out_mean.mean(axis=0)
 
         return out_mean
+    
+    def _predict(self,*args,**kwargs):
+        # this method is not needed for GPR. However, subclasses such as HMGP
+        # have predictions different from the regular __call__ methods
+        return self.__call__(*args,**kwargs)
