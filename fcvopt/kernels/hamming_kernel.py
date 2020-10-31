@@ -6,8 +6,8 @@ from ..priors import BetaPrior
 
 class HammingKernel(Kernel):
     has_lengthscale=False
-    def __init__(self,active_dims,**kwargs):
-        super().__init__(has_lengthscale=False,active_dims=active_dims,**kwargs)
+    def __init__(self,**kwargs):
+        super().__init__(has_lengthscale=False,**kwargs)
         
         # register correlation parameter
         # TODO: add support for multiple indicies
