@@ -76,7 +76,7 @@ class HMGP(ExactGP):
         
         self.covar_module_delta_fold = ScaleKernel(
             HammingKernel(),
-            outputscale_prior=LogNormalPrior(-0.5,1.),
+            outputscale_prior=LogNormalPrior(-1.,1.),
             outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
         )
     
@@ -143,8 +143,8 @@ class HMGP(ExactGP):
                 likelihood=self.likelihood,
             )
         
-        # TODO: include only the xs and not the fold_idx in the training inputs
         # Concatenate the input to the training input
+        # Note: includes only the xs
         full_inputs = []
         batch_shape = train_inputs[0].shape[:-2]
         for train_input, input in zip(train_inputs[0], inputs):
