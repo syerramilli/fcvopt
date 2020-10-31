@@ -12,7 +12,7 @@ def pyro_model(
     mll:gpytorch.mlls.ExactMarginalLogLikelihood
 ):
     model.pyro_sample_from_prior()
-    output = model(model.train_inputs[0])
+    output = model(*model.train_inputs)
     loss = mll.pyro_factor(output,model.train_targets)
     return model.train_targets
 
