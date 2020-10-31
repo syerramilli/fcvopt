@@ -26,8 +26,7 @@ class HGP(GPR):
         noise:float=1e-4,
         fix_noise:bool=False
     ) -> None:
-        GPR.__init__(
-            self,
+        super().__init__(
             train_x=train_x,train_y=train_y,
             correlation_kernel_class=correlation_kernel_class,
             noise=noise,fix_noise=fix_noise

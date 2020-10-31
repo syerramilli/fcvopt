@@ -5,14 +5,12 @@ import torch
 import gpytorch
 import warnings
 
-from ..models.gpregression import GPR
+from .. import kernels
+from ..models import GPR
 from ..models.mcmc_utils import mcmc_run
 from ..acquisition import LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 from ..configspace import ConfigurationSpace
-from ..priors import LogUniformPrior
-
-import fcvopt.kernels as kernels
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -32,8 +30,9 @@ class BayesOpt:
         self.obj = obj
         self.config = config
         if correlation_kernel_class is None:
-            correlation_kernel_class = kernels.Matern52Kernel
-        self.correlation_kernel_class = getattr(kernels,correlation_kernel_class)
+            self.correlation_kernel_class = kernels.Matern52Kernel
+        else:
+            self.correlation_kernel_class = getattr(kernels,correlation_kernel_class)
         
         self.kappa=kappa
         self.verbose=verbose
