@@ -31,7 +31,7 @@ class SklearnCVObj(CVObjective):
         self.needs_proba = needs_proba
     
     def construct_model(self,params):
-        return clone(self.estimator).set_params(params)
+        return clone(self.estimator).set_params(**params)
     
     def _fit_and_test(self, params, train_index, test_index):
         model = self.construct_model(params)
