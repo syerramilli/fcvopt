@@ -17,6 +17,7 @@ class FCVOpt(BayesOpt):
         obj:Callable,
         n_folds:int,
         config:ConfigurationSpace,
+        fold_selection_criterion:str='variance_reduction',
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
         verbose:int=0.,
@@ -27,7 +28,9 @@ class FCVOpt(BayesOpt):
             obj=obj,config=config,correlation_kernel_class=correlation_kernel_class,
             kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir
         )
-        # fold indicies and candidates not present in BayesOpt
+        # fold indices and candidates not present in BayesOpt
+        # TODO: add checks for the validity of fold_selection criterion
+        self.fold_selection_criterion = fold_selection_criterion
         self.n_folds = n_folds
         self.train_folds = None
         self.folds_cand = []
@@ -75,5 +78,17 @@ class FCVOpt(BayesOpt):
         super()._acquisition()
 
         # fold acquisition - random for now
-        # TODO: implement the more systemic criterion for fold selection
-        self.folds_cand.append(np.random.choice(self.n_folds))
+        if self.fold_selection_criterion == 'random':
+            self.folds_cand.append(np.random.choice(self.n_folds))
+        elif self.fold_selection_criterion == 'variance_reduction':
+            fold_idxs = np.arange(self.n_folds)
+            # shuffling to prevent ties among folds
+            np.random.shuffle(fold_idxs)
+            next_x = torch.tensor(
+                self.confs_cand[-1].get_array()
+            ).to(self.train_x).reshape(1,-1)
+            
+            fold_metrics = self.model._fold_selection_metric(next_x,fold_idxs)
+            self.folds_cand.append(
+                fold_idxs[np.argmin(fold_metrics)]
+            )

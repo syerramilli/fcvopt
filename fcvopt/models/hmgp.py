@@ -108,3 +108,39 @@ class HGP(GPR):
         # Reshape predictive mean to match the appropriate event shape
         predictive_mean = predictive_mean.view(*batch_shape, *test_shape).contiguous()
         return full_output.__class__(predictive_mean, predictive_covar)
+    
+    def _fold_selection_metric(self,x,fold_idxs):
+        # This method is for internal use only!.
+        #TODO: raise error if self.prediction_strategy is None
+        #TODO: raise error if not in eval model
+
+        # determine if batched or not
+        ndim = self.train_targets.ndim
+        if ndim == 1:
+            x_new = x
+        else:
+            num_samples = self.train_targets.shape[0]
+            x_new = x.unsqueeze(0).repeat(num_samples,1,1)
+        
+        ## precompute quantities common across all folds
+        covar_f_new = self.covar_module(self.train_inputs[0],x_new).evaluate()
+        covar_delta_new_x = self.covar_module_delta(self.train_inputs[0],x_new)
+        term1 = self.prediction_strategy.lik_train_train_covar.inv_matmul(covar_f_new)
+
+        # compute the fold selection criterion for all the folds
+        out = []
+        for fold_idx in fold_idxs:
+            fold_new = torch.tensor([[fold_idx]]).to(self.train_inputs[1])
+            if ndim > 1:
+                fold_new = fold_new.unsqueeze(0).repeat(num_samples,1,1)
+            
+            covar_delta_new = covar_delta_new_x.mul(
+                self.corr_delta_fold(self.train_inputs[1],fold_new)
+            ).evaluate()
+            
+            term4 = (covar_f_new+covar_delta_new).transpose(-1,-2).matmul(term1).flatten()
+            out.append(
+                term4.mul(term4-self.covar_module.outputscale).mean().item()
+            )
+        
+        return out
