@@ -3,7 +3,7 @@ import gpytorch
 
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import LogNormalPrior
+from gpytorch.priors import GammaPrior
 from .gpregression import GPR
 from ..priors import LogUniformPrior
 from ..kernels import HammingKernel
@@ -37,10 +37,12 @@ class HGP(GPR):
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
                 lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                lengthscale_prior=LogUniformPrior(0.01,10.)
+                lengthscale_prior=LogUniformPrior(0.1,10.)
             ),
-            outputscale_prior=LogNormalPrior(-1.,1.),
-            outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+            outputscale_prior=GammaPrior(1.15,1.5),
+            outputscale_constraint=Positive(
+                transform=torch.exp,inv_transform=torch.log,
+                initial_value=torch.tensor(0.1))
         )
 
         self.corr_delta_fold = HammingKernel()

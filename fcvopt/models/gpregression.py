@@ -44,18 +44,18 @@ class GPR(ExactGP):
         if fix_noise:
             self.likelihood.raw_noise.requires_grad_(False)
         else:
-            self.likelihood.register_prior('noise_prior',LogUniformPrior(1e-6,2.),'noise')
+            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
         
         # Modules
         self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
         self.covar_module = ScaleKernel(
             base_kernel = correlation_kernel_class(
-                ard_num_dims=train_x[0].size(1),
+                ard_num_dims=self.train_inputs[0].size(1),
                 lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                lengthscale_prior=LogUniformPrior(0.01,10.)
+                lengthscale_prior=GammaPrior(2.1,1.1)
             ),
-            outputscale_prior=LogNormalPrior(0.,1.),
-            outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+            outputscale_prior=GammaPrior(1.5,0.5),
+            outputscale_constraint=Positive()
         )
     
     def forward(self,x):
