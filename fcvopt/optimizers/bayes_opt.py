@@ -77,7 +77,7 @@ class BayesOpt:
                     # print header every 19 iterations
                     print(output_header)
                 term_metric = (self.f_inc_est[-1]-self.acq_vec[-1])/self.sigma_vec[-1]/self.kappa
-                print('%6i %10.3e %10.3e %10.3e %12.3e' %\
+                print('%6i %10.3e %10.3e %10.3e %12.4f' %\
                       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
                       self.acq_vec[-1],term_metric))
         
