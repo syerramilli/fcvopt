@@ -150,8 +150,8 @@ class BayesOpt:
             adapt_step_size=False,
             initial_params=self.initial_params,
             disable_progbar=True,
-            num_samples=100,
-            warmup_steps=100,
+            num_samples=30,
+            warmup_steps=200,
             num_model_samples=30
         )
         self.fit_time.append(time.time()-start_time)
@@ -173,7 +173,7 @@ class BayesOpt:
             train_x = self.train_x,
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
-            noise=1e-4,
+            noise=1e-2,
             fix_noise=False
         ).double()
     
@@ -188,7 +188,7 @@ class BayesOpt:
         acqopt = AcqFunOptimizer(
             acq_fun=acqobj,
             ndim = len(self.config.quant_index),
-            num_starts = min(10,2*len(self.config.quant_index)),
+            num_starts = max(10,2*len(self.config.quant_index)),
             x0=self.confs_inc[-1].get_array(),
             num_jobs=1 # TODO: add support for parallelization
         )

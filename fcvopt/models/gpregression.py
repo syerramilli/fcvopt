@@ -5,7 +5,7 @@ from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
 from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
-from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior
+from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior,InverseGammaPrior
 from typing import List
 
 class GPR(ExactGP):
@@ -52,10 +52,10 @@ class GPR(ExactGP):
             base_kernel = correlation_kernel_class(
                 ard_num_dims=self.train_inputs[0].size(1),
                 lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                lengthscale_prior=GammaPrior(2.1,1.1)
+                lengthscale_prior=LogUniformPrior(0.1,10.)
             ),
-            outputscale_prior=GammaPrior(1.5,0.5),
-            outputscale_constraint=Positive()
+            outputscale_prior=LogNormalPrior(0.,1.),
+            outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
         )
     
     def forward(self,x):
