@@ -80,7 +80,7 @@ class MLLObjective:
         # zero the gradient
         self.mll.zero_grad()
         # use it to calculate the objective
-        output = self.mll.model(self.mll.model.train_inputs[0])
+        output = self.mll.model(*self.mll.model.train_inputs)
         obj = -self.mll(output,self.mll.model.train_targets) # negative sign to minimize
         
         if return_grad:

@@ -94,7 +94,7 @@ class HGP(GPR):
         if batch_shape != inputs.shape[:-2]:
             batch_shape = _mul_broadcast_shape(batch_shape, inputs.shape[:-2])
             train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
-            input = input.expand(*batch_shape, *inputs.shape[-2:])
+            inputs = inputs.expand(*batch_shape, *inputs.shape[-2:])
         full_inputs.append(torch.cat([train_input, inputs], dim=-2))
 
         # Get the joint distribution for training/test data
