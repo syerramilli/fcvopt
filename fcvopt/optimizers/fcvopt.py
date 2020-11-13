@@ -17,6 +17,7 @@ class FCVOpt(BayesOpt):
         obj:Callable,
         n_folds:int,
         config:ConfigurationSpace,
+        estimation_method:str='MAP',
         fold_selection_criterion:str='variance_reduction',
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
@@ -25,7 +26,9 @@ class FCVOpt(BayesOpt):
         save_dir:Optional[int]=None
     ):
         super().__init__(
-            obj=obj,config=config,correlation_kernel_class=correlation_kernel_class,
+            obj=obj,config=config,deterministic=False,
+            estimation_method=estimation_method,
+            correlation_kernel_class=correlation_kernel_class,
             kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir
         )
         # fold indices and candidates not present in BayesOpt
@@ -70,7 +73,8 @@ class FCVOpt(BayesOpt):
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
             noise=1e-4,
-            fix_noise=False
+            fix_noise=False,
+            estimation_method=self.estimation_method
         ).double()
     
     def _acquisition(self) -> None:

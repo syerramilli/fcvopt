@@ -196,7 +196,8 @@ class BayesOpt:
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
             noise=noise,
-            fix_noise=self.deterministic
+            fix_noise=self.deterministic,
+            estimation_method=self.estimation_method
         ).double()
     
     def _calculate_prior_sigma(self) -> float:

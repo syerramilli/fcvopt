@@ -24,12 +24,14 @@ class HGP(GPR):
         train_y:torch.Tensor,
         correlation_kernel_class,
         noise:float=1e-4,
-        fix_noise:bool=False
+        fix_noise:bool=False,
+        estimation_method:str='MAP'
     ) -> None:
         super().__init__(
             train_x=train_x,train_y=train_y,
             correlation_kernel_class=correlation_kernel_class,
-            noise=noise,fix_noise=fix_noise
+            noise=noise,fix_noise=fix_noise,
+            estimation_method=estimation_method
         )
 
         # similar to f
@@ -44,7 +46,7 @@ class HGP(GPR):
         )
 
         self.corr_delta_fold = HammingKernel()
-        
+
         # additional priors
         self.covar_module_delta.register_prior('outputscale_prior',LogNormalPrior(-4.,2.),'outputscale')
         self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
@@ -66,7 +68,7 @@ class HGP(GPR):
         # the prediction routine is different from GPR in that we are interested only
         # in the main GP `f` and not delta. 
         train_inputs = list(self.train_inputs) if self.train_inputs is not None else []
-        inputs = [i.unsqueeze(-1) if i.ndimension() == 1 else i for i in args]
+        inputs = [i.unsqueeze(-1) if i.ndimension() == 1 else i for i in args][0]
 
         # Get the terms that only depend on training data
         if self.prediction_strategy is None:
@@ -84,16 +86,16 @@ class HGP(GPR):
         # Note: includes only the xs
         full_inputs = []
         batch_shape = train_inputs[0].shape[:-2]
-        for train_input, input in zip(train_inputs[0], inputs):
-            # Make sure the batch shapes agree for training/test data
-            if batch_shape != train_input.shape[:-2]:
-                batch_shape = _mul_broadcast_shape(batch_shape, train_input.shape[:-2])
-                train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
-            if batch_shape != input.shape[:-2]:
-                batch_shape = _mul_broadcast_shape(batch_shape, input.shape[:-2])
-                train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
-                input = input.expand(*batch_shape, *input.shape[-2:])
-            full_inputs.append(torch.cat([train_input, input], dim=-2))
+        train_input = train_inputs[0]
+        # Make sure the batch shapes agree for training/test data
+        if batch_shape != train_input.shape[:-2]:
+            batch_shape = _mul_broadcast_shape(batch_shape, train_input.shape[:-2])
+            train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
+        if batch_shape != inputs.shape[:-2]:
+            batch_shape = _mul_broadcast_shape(batch_shape, inputs.shape[:-2])
+            train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
+            input = input.expand(*batch_shape, *inputs.shape[-2:])
+        full_inputs.append(torch.cat([train_input, inputs], dim=-2))
 
         # Get the joint distribution for training/test data
         full_output = self.forward_f(*full_inputs)

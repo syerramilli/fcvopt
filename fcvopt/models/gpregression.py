@@ -18,13 +18,18 @@ class GPR(ExactGP):
         train_y:torch.Tensor,
         correlation_kernel_class,
         noise:float=1e-4,
-        fix_noise:bool=False
+        fix_noise:bool=False,
+        estimation_method:str='MAP'
     ) -> None:
     
         # initializing likelihood
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(
-            noise_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-        )
+        
+        if estimation_method == 'MAP':
+            noise_constraint=GreaterThan(1e-6,transform=torch.exp,inv_transform=torch.log)
+        elif estimation_method == 'MCMC':
+            noise_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+        
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
 
         # standardizing the response variable
         y_mean,y_std = train_y.mean(),train_y.std()
@@ -56,8 +61,10 @@ class GPR(ExactGP):
 
         # priors
         if not fix_noise:
-            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
-        
+            noise_prior = LogUniformPrior(1e-6,2.) if estimation_method == 'MAP' \
+                else HalfHorseshoePrior(0.1)
+            self.likelihood.register_prior('noise_prior',noise_prior,'noise')
+
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
         self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
         self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
@@ -76,7 +83,7 @@ class GPR(ExactGP):
         # determine if batched or not
         ndim = self.train_targets.ndim
         if ndim == 1:
-            output = self(x)
+            output = self._predict(x)
         else:
             num_samples = self.train_targets.shape[0]
             output = self._predict(x.unsqueeze(0).repeat(num_samples,1,1))
