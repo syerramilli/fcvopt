@@ -16,8 +16,9 @@ class LowerConfidenceBound(AcquisitionFunction):
     
     def forward(self, X:torch.Tensor) -> torch.Tensor:
         kappa = self.kappa.to(X)
-        posterior = self.model(X)
-        return posterior.mean - kappa*posterior.variance.sqrt()
+        mu,sigma = self.model.predict(X,return_std=True)
+
+        return mu-kappa*sigma
 
 class LowerConfidenceBoundMCMC(AcquisitionFunctionMCMC):
     def __init__(
