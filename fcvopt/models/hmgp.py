@@ -36,16 +36,18 @@ class HGP(GPR):
         self.covar_module_delta = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
-                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                lengthscale_prior=LogUniformPrior(0.1,10.)
+                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
             ),
             outputscale_prior=LogNormalPrior(-4.,2.),
             outputscale_constraint=Positive(
-                transform=torch.exp,inv_transform=torch.log,
-                initial_value=torch.tensor(0.01))
+                transform=torch.exp,inv_transform=torch.log)
         )
 
         self.corr_delta_fold = HammingKernel()
+        
+        # additional priors
+        self.covar_module_delta.register_prior('outputscale_prior',LogNormalPrior(-4.,2.),'outputscale')
+        self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
     
     def forward(self,x,fold_idx):
         mean_x = self.mean_module(x)

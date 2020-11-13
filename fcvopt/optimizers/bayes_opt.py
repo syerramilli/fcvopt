@@ -8,7 +8,8 @@ import warnings
 from .. import kernels
 from ..models import GPR
 from ..models.mcmc_utils import mcmc_run
-from ..acquisition import LowerConfidenceBoundMCMC
+from ..models.fit_model import fit_model_unconstrained
+from ..acquisition import LowerConfidenceBound,LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 from ..configspace import ConfigurationSpace
 
@@ -21,6 +22,8 @@ class BayesOpt:
         self,
         obj:Callable,
         config:ConfigurationSpace,
+        deterministic:bool=True,
+        estimation_method:str='MAP',
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
         verbose:int=0.,
@@ -29,6 +32,8 @@ class BayesOpt:
     ):
         self.obj = obj
         self.config = config
+        self.deterministic = deterministic
+        self.estimation_method = estimation_method
         if correlation_kernel_class is None:
             self.correlation_kernel_class = kernels.Matern52Kernel
         else:
@@ -144,16 +149,32 @@ class BayesOpt:
         self.model = self._construct_model()
 
         start_time = time.time()
-        self.initial_params = mcmc_run(
-            model=self.model,
-            step_size=0.1,
-            adapt_step_size=False,
-            initial_params=self.initial_params,
-            disable_progbar=True,
-            num_samples=30,
-            warmup_steps=200,
-            num_model_samples=30
-        )
+        if self.estimation_method == 'MCMC':
+            self.initial_params = mcmc_run(
+                model=self.model,
+                step_size=0.1,
+                adapt_step_size=False,
+                initial_params=self.initial_params,
+                disable_progbar=True,
+                num_samples=30,
+                warmup_steps=200,
+                num_model_samples=30
+            )
+        elif self.estimation_method == 'MAP':
+            if self.initial_params is not None:
+                self.model.initialize(**self.initial_params)
+
+            _ = fit_model_unconstrained(
+                model = self.model,
+                num_restarts = 9
+            )
+
+            self.initial_params = OrderedDict()
+            # disable model gradients
+            for name,parameter in self.model.named_parameters():
+                parameter.requires_grad_(False)
+                self.initial_params[name] = parameter
+
         self.fit_time.append(time.time()-start_time)
 
         # update sigma vec
@@ -169,12 +190,13 @@ class BayesOpt:
         self.f_inc_est.append(train_pred[fmin_index].item())
     
     def _construct_model(self):
+        noise = 1e-4 if self.deterministic else 1e-2
         return GPR(
             train_x = self.train_x,
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
-            noise=1e-2,
-            fix_noise=False
+            noise=noise,
+            fix_noise=self.deterministic
         ).double()
     
     def _calculate_prior_sigma(self) -> float:
@@ -184,7 +206,11 @@ class BayesOpt:
         return torch.sqrt(mean_vec.var()+var_vec.mean()).item()
     
     def _acquisition(self) -> None:
-        acqobj = LowerConfidenceBoundMCMC(self.model,kappa=self.kappa)
+        if self.estimation_method == 'MAP':
+            acqobj = LowerConfidenceBound(self.model,kappa=self.kappa)
+        else:
+            acqobj = LowerConfidenceBoundMCMC(self.model,kappa=self.kappa)
+        
         acqopt = AcqFunOptimizer(
             acq_fun=acqobj,
             ndim = len(self.config.quant_index),

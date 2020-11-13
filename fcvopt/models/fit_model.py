@@ -102,7 +102,7 @@ def fit_model_unconstrained(
     f_inc = np.inf
     # Output - Contains either optimize result objects or exceptions
     out = []
-
+    
     for i in range(num_restarts+1):
         try:
             res = minimize(

@@ -4,7 +4,7 @@ import gpytorch
 from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
+from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior,UniformPrior
 from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior,InverseGammaPrior
 from typing import List
 
@@ -43,20 +43,24 @@ class GPR(ExactGP):
 
         if fix_noise:
             self.likelihood.raw_noise.requires_grad_(False)
-        else:
-            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
         
         # Modules
-        self.mean_module = gpytorch.means.ConstantMean(prior=NormalPrior(0.,1.))
+        self.mean_module = gpytorch.means.ConstantMean()
         self.covar_module = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=self.train_inputs[0].size(1),
                 lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                lengthscale_prior=LogUniformPrior(0.1,10.)
             ),
-            outputscale_prior=LogNormalPrior(0.,1.),
             outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
         )
+
+        # priors
+        if not fix_noise:
+            self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
+        
+        self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
+        self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
+        self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
     
     def forward(self,x):
         mean_x = self.mean_module(x)
