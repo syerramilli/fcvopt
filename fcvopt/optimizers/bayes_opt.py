@@ -200,9 +200,13 @@ class BayesOpt:
         ).double()
     
     def _calculate_prior_sigma(self) -> float:
-        mean_vec = self.model.mean_module.constant*self.model.y_std + self.model.y_mean
         var_vec = self.model.covar_module.outputscale*(self.model.y_std**2)
         
+        if self.estimation_method  == 'MAP':
+            return var_vec.sqrt().item()
+        
+        # else MCMC
+        mean_vec = self.model.mean_module.constant*self.model.y_std + self.model.y_mean
         return torch.sqrt(mean_vec.var()+var_vec.mean()).item()
     
     def _acquisition(self) -> None:
