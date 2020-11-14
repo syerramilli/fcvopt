@@ -42,13 +42,13 @@ class HGP(GPR):
             ),
             outputscale_prior=LogNormalPrior(-4.,2.),
             outputscale_constraint=Positive(
-                transform=torch.exp,inv_transform=torch.log)
+                transform=torch.exp,inv_transform=torch.log,initial_value=torch.tensor(0.1))
         )
 
         self.corr_delta_fold = HammingKernel()
 
         # additional priors
-        self.covar_module_delta.register_prior('outputscale_prior',LogNormalPrior(-4.,2.),'outputscale')
+        self.covar_module_delta.register_prior('outputscale_prior',LogNormalPrior(-3.,2.),'outputscale')
         self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
     
     def forward(self,x,fold_idx):
