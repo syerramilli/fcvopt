@@ -17,6 +17,7 @@ class FCVOpt(BayesOpt):
         obj:Callable,
         n_folds:int,
         config:ConfigurationSpace,
+        deterministic:str=False,
         estimation_method:str='MAP',
         fold_selection_criterion:str='variance_reduction',
         correlation_kernel_class:Optional[str]=None,
@@ -26,7 +27,7 @@ class FCVOpt(BayesOpt):
         save_dir:Optional[int]=None
     ):
         super().__init__(
-            obj=obj,config=config,deterministic=False,
+            obj=obj,config=config,deterministic=deterministic,
             estimation_method=estimation_method,
             correlation_kernel_class=correlation_kernel_class,
             kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir
@@ -68,12 +69,13 @@ class FCVOpt(BayesOpt):
             self.obj_eval_time.append(eval_time)
     
     def _construct_model(self):
+        noise = 1e-4 if self.deterministic else 1e-2
         return HGP(
             train_x = (self.train_x,self.train_folds),
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
-            noise=1e-4,
-            fix_noise=False,
+            noise=noise,
+            fix_noise=self.deterministic,
             estimation_method=self.estimation_method
         ).double()
     

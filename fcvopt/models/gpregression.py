@@ -25,9 +25,9 @@ class GPR(ExactGP):
         # initializing likelihood
         
         if estimation_method == 'MAP':
-            noise_constraint=GreaterThan(1e-6,transform=torch.exp,inv_transform=torch.log)
+            noise_constraint=GreaterThan(1e-6)
         elif estimation_method == 'MCMC':
-            noise_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+            noise_constraint=Positive()
         
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
 
@@ -54,9 +54,9 @@ class GPR(ExactGP):
         self.covar_module = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=self.train_inputs[0].size(1),
-                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
+                lengthscale_constraint=Positive(),
             ),
-            outputscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+            outputscale_constraint=Positive()
         )
 
         # priors

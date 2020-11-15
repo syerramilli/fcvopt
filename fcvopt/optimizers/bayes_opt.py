@@ -157,7 +157,7 @@ class BayesOpt:
                 initial_params=self.initial_params,
                 disable_progbar=True,
                 num_samples=30,
-                warmup_steps=200,
+                warmup_steps=150,
                 num_model_samples=30
             )
         elif self.estimation_method == 'MAP':

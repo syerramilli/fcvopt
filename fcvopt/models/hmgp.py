@@ -38,11 +38,11 @@ class HGP(GPR):
         self.covar_module_delta = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
-                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log)
+                lengthscale_constraint=Positive()
             ),
-            outputscale_prior=LogNormalPrior(-4.,2.),
+            outputscale_prior=LogNormalPrior(-3.,2.),
             outputscale_constraint=Positive(
-                transform=torch.exp,inv_transform=torch.log,initial_value=torch.tensor(0.1))
+                initial_value=torch.tensor(0.1))
         )
 
         self.corr_delta_fold = HammingKernel()
