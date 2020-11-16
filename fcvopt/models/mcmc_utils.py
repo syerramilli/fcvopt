@@ -29,11 +29,10 @@ def mcmc_run(
     
     if initial_params is not None:
         model.initialize(**initial_params)
-    # else:
-    #     # initialize HMC with a local model of the posterior
-    #     with gpytorch.settings.fast_computations(log_prob=False):
-    #         _ = fit_model_unconstrained(model,num_restarts=0)
-    #         print(list(model.named_parameters()))
+    else:
+        # initialize HMC with a local mode of the posterior
+        with gpytorch.settings.fast_computations(log_prob=False):
+            _ = fit_model_unconstrained(model,num_restarts=4)
     
     mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood,model)
     nuts_kernel = NUTS(pyro_model,step_size=step_size,
