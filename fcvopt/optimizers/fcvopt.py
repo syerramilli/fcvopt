@@ -46,7 +46,7 @@ class FCVOpt(BayesOpt):
             
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = self.config.latinhypercube_sample(n_init)    
-            self.train_folds = torch.randint(self.n_folds,(n_init,1)).double()
+            self.train_folds = torch.randint(self.n_folds,(1,1)).repeat(n_init,1).double()
 
             for conf,fold_idx in zip(self.train_confs,self.train_folds):
                 x,y,eval_time = self._evaluate(conf,fold_idxs=fold_idx.int().tolist())
