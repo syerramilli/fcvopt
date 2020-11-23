@@ -11,7 +11,7 @@ class ExpectedImprovement(AcquisitionFunction):
         model:GPR,
         f_best:Union[float,torch.Tensor]
     ) -> None:
-        super().__init__(model=model)
+        super().__init__(model=model,maximize=True)
         if not torch.is_tensor(f_best):
             f_best = torch.tensor(f_best)
 
