@@ -150,14 +150,14 @@ class BayesOpt:
 
         start_time = time.time()
         if self.estimation_method == 'MCMC':
-            _ = mcmc_run(
+            self.initial_params = mcmc_run(
                 model=self.model,
                 step_size=1.0,
                 adapt_step_size=True,
                 initial_params=self.initial_params,
-                disable_progbar=False,
+                disable_progbar=True,
                 num_samples=50,
-                warmup_steps=100,
+                warmup_steps=250,
                 num_model_samples=50
             )
         elif self.estimation_method == 'MAP':
