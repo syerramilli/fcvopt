@@ -3,9 +3,9 @@ import gpytorch
 
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import LogNormalPrior
+from gpytorch.priors import LogNormalPrior,GammaPrior
 from .gpregression import GPR
-from ..priors import LogUniformPrior
+from ..priors import LogUniformPrior,InverseGammaPrior
 from ..kernels import HammingKernel
 
 # for extracting predictions
@@ -49,7 +49,7 @@ class HGP(GPR):
 
         # additional priors
         self.covar_module_delta.register_prior('outputscale_prior',LogNormalPrior(-4.,2.),'outputscale')
-        self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
+        self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',InverseGammaPrior(2.5,2.5),'lengthscale')
     
     def forward(self,x,fold_idx):
         mean_x = self.mean_module(x)
