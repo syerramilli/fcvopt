@@ -7,7 +7,7 @@ import warnings
 
 from .. import kernels
 from ..models import GPR
-from ..models.mcmc_utils import mcmc_run
+from ..models.emcee_utils import EnsembleMCMC
 from ..models.fit_model import fit_model_unconstrained
 from ..acquisition import LowerConfidenceBound,LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
@@ -150,16 +150,11 @@ class BayesOpt:
 
         start_time = time.time()
         if self.estimation_method == 'MCMC':
-            self.initial_params = mcmc_run(
-                model=self.model,
-                step_size=1.0,
-                adapt_step_size=True,
-                initial_params=self.initial_params,
-                disable_progbar=True,
-                num_samples=50,
-                warmup_steps=250,
-                num_model_samples=50
-            )
+            num_steps = 200 if self.initial_params is not None else 1000
+            burnin = 200 if self.initial_params is not None else 1000
+            mcmc = EnsembleMCMC(self.model,burnin,num_steps,p0=self.initial_params)
+            self.initial_params = mcmc.run(progress=True)
+            
         elif self.estimation_method == 'MAP':
             if self.initial_params is not None:
                 self.model.initialize(**self.initial_params)
