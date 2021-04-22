@@ -36,7 +36,7 @@ class HalfHorseshoePrior(Prior):
         # now need to delete to be able to register buffer
         del self.scale
         self.register_buffer("scale", scale)
-        self.register_buffer("lb", torch.tensor(1e-6))
+        self.register_buffer("lb", torch.tensor(1e-8))
         self._transform = None
 
     def log_prob(self, X):

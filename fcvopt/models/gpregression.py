@@ -23,12 +23,7 @@ class GPR(ExactGP):
     ) -> None:
     
         # initializing likelihood
-        
-        if estimation_method == 'MAP':
-            noise_constraint=GreaterThan(1e-6)
-        elif estimation_method == 'MCMC':
-            noise_constraint=Positive()
-        
+        noise_constraint=GreaterThan(1e-8)
         likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
 
         # standardizing the response variable
@@ -61,7 +56,7 @@ class GPR(ExactGP):
 
         # priors
         if not fix_noise:
-            noise_prior = LogUniformPrior(1e-6,2.) if estimation_method == 'MAP' \
+            noise_prior = LogUniformPrior(1e-8,2.) if estimation_method == 'MAP' \
                 else HalfHorseshoePrior(0.1)
             self.likelihood.register_prior('noise_prior',noise_prior,'noise')
 
