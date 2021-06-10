@@ -16,6 +16,7 @@ class FCVOpt(BayesOpt):
         self,
         obj:Callable,
         n_folds:int,
+        n_repeats:int,
         config:ConfigurationSpace,
         deterministic:str=False,
         estimation_method:str='MAP',
@@ -36,6 +37,7 @@ class FCVOpt(BayesOpt):
         # TODO: add checks for the validity of fold_selection criterion
         self.fold_selection_criterion = fold_selection_criterion
         self.n_folds = n_folds
+        self.n_repeats = n_repeats
         self.train_folds = None
         self.folds_cand = []
 
@@ -45,8 +47,10 @@ class FCVOpt(BayesOpt):
                 n_init = len(self.config.quant_index) + 1
             
             self.config.seed(np.random.randint(2e+4))
-            self.train_confs = self.config.latinhypercube_sample(n_init)    
-            self.train_folds = torch.randint(self.n_folds,(1,1)).repeat(n_init,1).double()
+            self.train_confs = self.config.latinhypercube_sample(n_init)
+            # initialize fold to be from among the first replicate    
+            #self.train_folds = torch.randint(self.n_folds,(1,1)).repeat(n_init,1).double()
+            self.train_folds = torch.randint(self.n_folds,(n_init,1)).double()
 
             for conf,fold_idx in zip(self.train_confs,self.train_folds):
                 x,y,eval_time = self._evaluate(conf,fold_idxs=fold_idx.int().tolist())
@@ -82,14 +86,18 @@ class FCVOpt(BayesOpt):
     def _acquisition(self) -> None:
         # acquisition for x is the same as BayesOpt
         super()._acquisition()
+        # consider sampling from other replicates only if all folds of the 
+        # first replicate have been evaluated at least once
+        total_num_folds = self.n_folds if self.train_folds.flatten().unique().shape[0] < self.n_folds \
+            else self.n_folds*self.n_repeats 
+        fold_idxs = np.arange(total_num_folds)
+        # shuffling to prevent ties among folds
+        np.random.shuffle(fold_idxs)
 
-        # fold acquisition - random for now
+        # fold acquisition
         if self.fold_selection_criterion == 'random':
-            self.folds_cand.append(np.random.choice(self.n_folds))
+            self.folds_cand.append(np.random.choice(fold_idxs))
         elif self.fold_selection_criterion == 'variance_reduction':
-            fold_idxs = np.arange(self.n_folds)
-            # shuffling to prevent ties among folds
-            np.random.shuffle(fold_idxs)
             next_x = torch.tensor(
                 self.confs_cand[-1].get_array()
             ).to(self.train_x).reshape(1,-1)
