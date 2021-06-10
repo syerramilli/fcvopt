@@ -4,8 +4,8 @@ import gpytorch
 from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior,UniformPrior
-from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior,InverseGammaPrior
+from gpytorch.priors import NormalPrior,LogNormalPrior
+from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior
 from typing import List
 
 class GPR(ExactGP):
@@ -62,7 +62,7 @@ class GPR(ExactGP):
 
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
         self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
-        self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.1,10.),'lengthscale')
+        self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
     
     def forward(self,x):
         mean_x = self.mean_module(x)

@@ -3,10 +3,10 @@ import gpytorch
 
 from gpytorch.kernels import ScaleKernel
 from gpytorch.constraints import GreaterThan,Positive
-from gpytorch.priors import LogNormalPrior,GammaPrior
+from gpytorch.priors import LogNormalPrior
 from .gpregression import GPR
-from ..priors import LogUniformPrior,InverseGammaPrior
-from ..kernels import HammingKernel,ZeroOneKernel
+from ..priors import LogUniformPrior
+from ..kernels import HammingKernel,ConstantKernel
 
 # for extracting predictions
 from gpytorch.models.exact_prediction_strategies import prediction_strategy
@@ -38,18 +38,16 @@ class HGP(GPR):
         self.covar_module_delta = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
-                lengthscale_constraint=Positive()
+                lengthscale_constraint=Positive(),
+                lengthscale_prior=LogUniformPrior(0.01,10.)
             ),
-            outputscale_prior=LogNormalPrior(-3.,2.),
+            outputscale_prior=LogNormalPrior(-2.,2.),
             outputscale_constraint=Positive(
                 initial_value=torch.tensor(0.1))
         )
 
         self.corr_delta_fold = HammingKernel()
 
-        # additional priors
-        self.covar_module_delta.base_kernel.register_prior('lengthscale_prior',InverseGammaPrior(2.,2.),'lengthscale')
-    
     def forward(self,x,fold_idx):
         mean_x = self.mean_module(x)
         covar_f = self.covar_module(x)
