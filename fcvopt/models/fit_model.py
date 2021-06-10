@@ -34,17 +34,6 @@ class MLLObjective:
         
         return np.concatenate([parameters[n].data.numpy().ravel() for n in parameters])
     
-    def sample_from_prior(self):
-        '''
-        Samples hyperparameters and modifies them in place
-        '''
-
-        # sample the remaining hyperparameters from their respective priors
-        # Note: samples in place
-        for _,prior,closure,setting_closure in self.mll.model.named_priors():
-            num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
-            setting_closure(prior.sample(num_samples))
-    
     def unpack_parameters(self, x):
         """optimize.minimize will supply 1D array, chop it up for each parameter."""
         i = 0
@@ -123,8 +112,8 @@ def fit_model_unconstrained(
         
         likobj.mll.load_state_dict(current_state_dict)
         if i < num_restarts:
-            # replaces prior in place
-            likobj.sample_from_prior()
+            # reset parameters
+            likobj.mll.model.reset_parameters()
 
     # load final dictionary
     likobj.mll.load_state_dict(current_state_dict)

@@ -105,3 +105,10 @@ class GPR(ExactGP):
         # this method is not needed for GPR. However, subclasses such as HMGP
         # have predictions different from the regular __call__ methods
         return self.__call__(*args,**kwargs)
+    
+    def reset_parameters(self):
+        # sample the hyperparameters from their respective priors
+        # Note: samples in place
+        for _,prior,closure,setting_closure in self.named_priors():
+            num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
+            setting_closure(prior.sample(num_samples))
