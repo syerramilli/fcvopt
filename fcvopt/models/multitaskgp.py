@@ -1,0 +1,86 @@
+import torch
+import gpytorch
+
+from gpytorch.models import ExactGP
+from gpytorch.constraints import GreaterThan,Positive
+from gpytorch.priors import NormalPrior,LogNormalPrior
+from ..priors import HalfHorseshoePrior,LogUniformPrior
+from ..kernels import MultiTaskKernel
+
+from typing import List
+
+class MultitaskGPModel(ExactGP):
+    '''
+    Multi-task GP model used by Swersky et.al.
+    '''
+    def __init__(
+        self,
+        train_x:torch.Tensor,
+        train_y:torch.Tensor,
+        num_tasks:int,
+        correlation_kernel_class,
+        noise:float=1e-4,
+        fix_noise:bool=False,
+        estimation_method:str='MAP'
+    ) -> None:
+
+        # initializing likelihood
+        noise_constraint=GreaterThan(1e-8)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
+
+        # standardizing the response variable
+        y_mean,y_std = train_y.mean(),train_y.std()
+        train_y_sc = (train_y-y_mean)/y_std
+
+        # initializing ExactGP
+        super().__init__(train_x,train_y_sc,likelihood)
+
+        # registering mean and std of the raw response
+        self.register_buffer('y_mean',y_mean)
+        self.register_buffer('y_std',y_std)
+
+        # initializing and fixing noise
+        if noise is not None:
+            self.likelihood.initialize(noise=noise)
+
+        if fix_noise:
+            self.likelihood.raw_noise.requires_grad_(False)
+        
+        # Modules
+        self.mean_module = gpytorch.means.ConstantMean()
+        self.covar_module = correlation_kernel_class(
+            ard_num_dims=self.train_inputs[0].size(1),
+            lengthscale_constraint=Positive(),
+        )
+        self.task_covar_module = MultiTaskKernel(num_tasks)
+
+        # priors
+        if not fix_noise:
+            noise_prior = LogUniformPrior(1e-8,2.) if estimation_method == 'MAP' \
+                else HalfHorseshoePrior(0.1)
+            self.likelihood.register_prior('noise_prior',noise_prior,'noise')
+
+        self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
+        self.covar_module.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
+
+    def forward(self,x,i):
+        mean_x = self.mean_module(x)
+
+        # Get input-input covariance
+        covar_x = self.covar_module(x)
+        # Get task-task covariance
+        covar_i = self.task_covar_module(i)
+        # Multiply the two together to get the covariance we want
+        covar = covar_x.mul(covar_i)
+
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar)
+    
+    def reset_parameters(self):
+        # reset the raw cholesky vector from N(0,1) 
+        torch.nn.init.normal_(self.task_covar_module.raw_chol_vec,0.,1.)
+
+        # sample the hyperparameters from their respective priors
+        # Note: samples in place
+        for _,prior,closure,setting_closure in self.named_priors():
+            num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
+            setting_closure(prior.sample(num_samples))

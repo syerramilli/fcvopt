@@ -60,3 +60,34 @@ class HammingKernel(Kernel):
             res = 1. - dist.mul(1.-self.rho)
         
         return res
+
+
+class ZeroOneKernel(Kernel):
+    has_lengthscale=False
+    def __init__(self,**kwargs):
+        super().__init__(has_lengthscale=False,**kwargs)
+    
+    def forward(
+        self,
+        x1,x2,
+        diag=False,
+        last_dim_is_batch=False
+    ):
+        if last_dim_is_batch:
+            x1 = x1.transpose(-1, -2).unsqueeze(-1)
+            x2 = x2.transpose(-1, -2).unsqueeze(-1)
+
+        x1_eq_x2 = torch.equal(x1, x2)
+
+        res = None
+        if diag:
+            # Special case the diagonal because we can return all ones most of the time.
+            if x1_eq_x2:
+                res = torch.ones(*x1.shape[:-2], x1.shape[-2], dtype=x1.dtype, device=x1.device)
+            else:
+                res = 1.-torch.norm(x1,x2,p=0,dim=-1)
+        
+        else:
+            res = 1. - torch.cdist(x1,x2,p=0.)
+        
+        return res
