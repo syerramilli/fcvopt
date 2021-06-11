@@ -20,7 +20,7 @@ class MultiTaskKernel(Kernel):
         )
         self.register_constraint(
             'raw_chol_vec',
-            GreaterThan(1e-8,transform=torch.exp,inv_transform=torch.log)
+            GreaterThan(1e-6,transform=torch.exp,inv_transform=torch.log)
         )
     
     @property
