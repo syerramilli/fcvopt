@@ -38,6 +38,7 @@ class MultitaskGPModel(ExactGP):
         # registering mean and std of the raw response
         self.register_buffer('y_mean',y_mean)
         self.register_buffer('y_std',y_std)
+        self.register_buffer('num_tasks',torch.tensor(num_tasks))
 
         # initializing and fixing noise
         if noise is not None:
@@ -84,3 +85,28 @@ class MultitaskGPModel(ExactGP):
         for _,prior,closure,setting_closure in self.named_priors():
             num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
             setting_closure(prior.sample(num_samples))
+    
+    def predict(self,x,i=None,return_std=False,marginalize=False):
+        '''
+        Returns the prediction mean and variance at the given points
+        # if i is None, then return the mean of the averaged estimate
+        # at a single x
+        '''
+        self.eval()
+
+        if i is None:
+            # for compatibility with BayesOpt methods
+            # return the mean at a single x
+            i = torch.arange(self.num_tasks)
+            x2 = x.repeat(self.num_tasks,1)
+            output = self(x2,i)
+            return output.mean.mean()*self.y_std + self.y_mean
+        
+        output = self(x,i)
+        out_mean = output.mean
+        if return_std:
+            out_std = output.variance.sqrt()*self.y_std
+            return out_mean,out_std
+        
+        return out_mean
+            
