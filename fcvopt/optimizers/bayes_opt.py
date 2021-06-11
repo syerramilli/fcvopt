@@ -4,6 +4,7 @@ import time
 import torch
 import gpytorch
 import warnings
+import joblib
 
 from .. import kernels
 from ..models import GPR
@@ -118,7 +119,23 @@ class BayesOpt:
         return results
 
     def save_to_file(self,folder):
-        pass
+        #  optimization statistics
+        stat_keys = [
+            'f_inc_obs','f_inc_est','acq_vec','sigma_vec',
+            'confs_inc','confs_cand',
+            'fit_time','acqopt_time','obj_eval_time',
+        ]
+        stats = {
+            key:getattr(self,key) for key in stat_keys
+        }
+        joblib.dump(stats,os.path.join(folder,'stats.pkl'))
+        # Observations
+        _ = torch.save({
+            key:getattr(self,key) for key in ['train_x','train_y','train_folds']
+        },os.path.join(folder,'model_train.pt'))
+        # model state dict
+        _ = torch.save(self.model.state_dict(),os.path.join(folder,'model_state.pth'))
+
 
     def _initialize(self,n_init:Optional[int]=None):
         if self.train_confs is None:
