@@ -89,7 +89,7 @@ class MultitaskGPModel(ExactGP):
     def predict(self,x,i=None,return_std=False,marginalize=False):
         '''
         Returns the prediction mean and variance at the given points
-        # if i is None, then return the mean of the averaged estimate
+        # if i is None, then return the mean and std of the averaged estimate
         # at a single x
         '''
         self.eval()
@@ -100,13 +100,18 @@ class MultitaskGPModel(ExactGP):
             i = torch.arange(self.num_tasks)
             x2 = x.repeat(self.num_tasks,1)
             output = self(x2,i)
-            return output.mean.mean()*self.y_std + self.y_mean
+            out_mean = output.mean.mean()*self.y_std + self.y_mean
+            if return_std:
+                out_covar = output.covariance_matrix*self.y_std**2
+                out_std = out_covar.sum().sqrt()/self.num_tasks
+                return out_mean,out_std
+
+            return out_mean
         
         output = self(x,i)
-        out_mean = output.mean
+        out_mean = output.mean*self.y_std + self.y_mean
         if return_std:
             out_std = output.variance.sqrt()*self.y_std
             return out_mean,out_std
         
         return out_mean
-            
