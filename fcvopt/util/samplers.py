@@ -34,4 +34,13 @@ def lh_sampler(n_samples,lower,upper,rng=None):
         rng.shuffle(grid[:,i])
     
     return grid
-    
+
+def stratified_sample(num_choices:int,size:int) -> np.ndarray:
+    num_mult = size//num_choices
+    idx = np.repeat(np.arange(num_choices),num_mult)
+    num_balance = size - num_mult*num_choices
+    if num_balance > 0:
+        idx = np.concatenate([idx,np.random.choice(num_choices,size=num_balance,replace=False)])
+
+    np.random.shuffle(idx)
+    return idx
