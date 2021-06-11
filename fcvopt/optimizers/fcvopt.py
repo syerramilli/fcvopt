@@ -9,6 +9,7 @@ from ..acquisition import LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 
 from ..configspace import ConfigurationSpace
+from ..util.samplers import stratified_sample
 from typing import Callable,List,Union,Tuple,Optional,Dict
 
 class FCVOpt(BayesOpt):
@@ -21,6 +22,7 @@ class FCVOpt(BayesOpt):
         deterministic:str=False,
         estimation_method:str='MAP',
         fold_selection_criterion:str='variance_reduction',
+        fold_initialization:str='random',
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
         verbose:int=0.,
@@ -36,6 +38,7 @@ class FCVOpt(BayesOpt):
         # fold indices and candidates not present in BayesOpt
         # TODO: add checks for the validity of fold_selection criterion
         self.fold_selection_criterion = fold_selection_criterion
+        self.fold_initialization = fold_initialization
         self.n_folds = n_folds
         self.n_repeats = n_repeats
         self.train_folds = None
@@ -50,7 +53,10 @@ class FCVOpt(BayesOpt):
             self.train_confs = self.config.latinhypercube_sample(n_init)
             # initialize fold to be from among the first replicate    
             #self.train_folds = torch.randint(self.n_folds,(1,1)).repeat(n_init,1).double()
-            self.train_folds = torch.randint(self.n_folds,(n_init,1)).double()
+            if self.fold_initialization == 'random':
+                self.train_folds = torch.randint(self.n_folds,(n_init,1)).double()
+            elif self.fold_initialization == 'stratified':
+                self.train_folds = torch.from_numpy(stratified_sample(self.n_folds,n_init)).double().view(-1,1)
 
             for conf,fold_idx in zip(self.train_confs,self.train_folds):
                 x,y,eval_time = self._evaluate(conf,fold_idxs=fold_idx.int().tolist())
@@ -86,10 +92,13 @@ class FCVOpt(BayesOpt):
     def _acquisition(self) -> None:
         # acquisition for x is the same as BayesOpt
         super()._acquisition()
-        # consider sampling from other replicates only if all folds of the 
-        # first replicate have been evaluated at least once
-        total_num_folds = self.n_folds if self.train_folds.flatten().unique().shape[0] < self.n_folds \
-            else self.n_folds*self.n_repeats 
+        
+        total_num_folds = self.n_folds
+        if self.n_repeats > 1 and self.train_folds.flatten().unique().shape[0] < self.n_folds:
+            # consider sampling from other replicates only if all folds of the 
+            # first replicate have been evaluated at least once
+            total_num_folds = self.n_folds*self.n_repeats
+
         fold_idxs = np.arange(total_num_folds)
         # shuffling to prevent ties among folds
         np.random.shuffle(fold_idxs)
