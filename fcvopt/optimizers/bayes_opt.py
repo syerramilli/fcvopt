@@ -64,8 +64,10 @@ class BayesOpt:
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
-        output_header = '%6s %10s %10s %10s %12s' % \
-                    ('iter', 'f_inc_obs', 'f_inc_est','acq_cand',"term_metric")
+        # output_header = '%6s %10s %10s %10s %12s' % \
+        #             ('iter', 'f_inc_obs', 'f_inc_est','acq_cand',"term_metric")
+        output_header = '%6s %10s %10s %10s' % \
+                    ('iter', 'f_inc_obs', 'f_inc_est','acq_cand')
         for i in range(n_iter):
             # either initialize observations or evaluate the next candidate
             self._initialize(n_init)
@@ -81,10 +83,13 @@ class BayesOpt:
                 if i%10 == 0:
                     # print header every 19 iterations
                     print(output_header)
-                term_metric = (self.f_inc_est[-1]-self.acq_vec[-1])/self.sigma_vec[-1]/self.kappa
-                print('%6i %10.3e %10.3e %10.3e %12.4f' %\
+                #term_metric = (self.f_inc_est[-1]-self.acq_vec[-1])/self.sigma_vec[-1]/self.kappa
+                # print('%6i %10.3e %10.3e %10.3e %12.4f' %\
+                #       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
+                #       self.acq_vec[-1],term_metric))
+                print('%6i %10.3e %10.3e %10.3e' %\
                       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
-                      self.acq_vec[-1],term_metric))
+                      self.acq_vec[-1]))
         
         if self.verbose >= 1:
             est_cand = self.model.predict(
@@ -111,6 +116,9 @@ class BayesOpt:
         results['f_inc_est'] = self.f_inc_est[-1]
 
         return results
+
+    def save_to_file(self,folder):
+        pass
 
     def _initialize(self,n_init:Optional[int]=None):
         if self.train_confs is None:
@@ -176,9 +184,11 @@ class BayesOpt:
         self.sigma_vec.append(self._calculate_prior_sigma())
 
         # find incumbent
-        with warnings.catch_warnings(): 
+        with warnings.catch_warnings(),torch.no_grad(): 
             warnings.simplefilter(action='ignore',category=gpytorch.utils.warnings.GPInputWarning)
-            train_pred = self.model.predict(self.train_x)  
+            train_pred = torch.tensor([
+                self.model.predict(x.view(1,-1)) for x in self.train_x
+            ]).double()
         fmin_index = train_pred.argmin().item()
         self.confs_inc.append(self.train_confs[fmin_index])
         self.f_inc_obs.append(self.train_y[fmin_index].item())
