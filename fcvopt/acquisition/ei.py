@@ -17,9 +17,9 @@ class ExpectedImprovement(AcquisitionFunction):
 
         self.register_buffer('f_best',f_best)
     
-    def forward(self,X:torch.Tensor) -> torch.Tensor:
+    def forward(self,X:torch.Tensor,**kwargs) -> torch.Tensor:
         f_best = self.f_best.to(X)
-        mu,sigma = self.model.predict(X,return_std=True,marginalize=False)
+        mu,sigma = self.model.predict(X,return_std=True,marginalize=False,**kwargs)
         u = (f_best.expand_as(mu)-mu)/sigma
         normal = Normal(torch.zeros_like(u),torch.ones_like(u))
         
