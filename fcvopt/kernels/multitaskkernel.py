@@ -1,7 +1,7 @@
 import torch
 import math
 from gpytorch.kernels import Kernel
-from gpytorch.constraints import Positive
+from gpytorch.constraints import Positive,GreaterThan
 from gpytorch.lazy import PsdSumLazyTensor,RootLazyTensor,InterpolatedLazyTensor
 from gpytorch.utils.broadcasting import _mul_broadcast_shape
 
@@ -20,7 +20,7 @@ class MultiTaskKernel(Kernel):
         )
         self.register_constraint(
             'raw_chol_vec',
-            Positive(transform=torch.exp,inv_transform=torch.log)
+            GreaterThan(1e-8,transform=torch.exp,inv_transform=torch.log)
         )
     
     @property
