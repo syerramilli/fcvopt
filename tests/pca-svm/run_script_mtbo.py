@@ -5,7 +5,7 @@ import torch
 import random
 
 from fcvopt.configspace import ConfigurationSpace,CSH
-from fcvopt.optimizers.fcvopt import FCVOpt
+from fcvopt.optimizers.mtbo_cv import MTBOCVOpt
 from fcvopt.crossvalidation.sklearn_cvobj import SklearnCVObj
 from sklearn.metrics import roc_auc_score
 from sklearn.svm import SVC
@@ -82,14 +82,12 @@ config.generate_indices()
 
 #%% 
 set_seed(args.seed)
-opt = FCVOpt(
+opt = MTBOCVOpt(
     obj=svmcv.cvloss,
     n_folds=svmcv.cv.get_n_splits(),
-    n_repeats=1,
     estimation_method='MAP',
     deterministic=False,
-    fold_selection_criterion='variance_reduction',
-    fold_initialization='stratified',
+    fold_selection_criterion='single-task-ei',
     config=config,
     correlation_kernel_class=None,
     kappa=2.,
