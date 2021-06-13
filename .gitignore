@@ -12,3 +12,11 @@ test.py
 
 # pkl files
 *.pkl
+*.pt
+*.pth
+
+# quest files
+*.e*
+*.o*
+
+*.csv
