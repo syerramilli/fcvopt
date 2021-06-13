@@ -10,7 +10,7 @@ seeds = np.random.choice(np.arange(100,1000),12,replace=False)
 with open('submit.sh','r') as f:
     s = f.read()
 
-for seed in seeds[2:]:
+for seed in seeds:
     s2 =  re.sub(r'[0-9]{3}$',str(seed),s)
     with open('submit.sh','w') as f:
         f.write(s2)
