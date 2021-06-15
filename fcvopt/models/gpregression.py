@@ -101,6 +101,24 @@ class GPR(ExactGP):
 
         return out_mean
     
+    def return_var(self,x):
+        self.eval()
+        
+        # determine if batched or not
+        ndim = self.train_targets.ndim
+        if ndim == 1:
+            output = self._predict(x)
+            return output.variance*self.y_std**2
+        else:
+            # Marginalize over the hyperparameter posterior
+            num_samples = self.train_targets.shape[0]
+            output = self._predict(x.unsqueeze(0).repeat(num_samples,1,1))
+
+            out_mean = self.y_mean + self.y_std*output.mean
+            out_var = output.variance*self.y_std**2
+
+            return out_var.mean(axis=0)+out_mean.var(axis=0)
+    
     def _predict(self,*args,**kwargs):
         # this method is not needed for GPR. However, subclasses such as HMGP
         # have predictions different from the regular __call__ methods
