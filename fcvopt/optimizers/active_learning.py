@@ -73,6 +73,9 @@ class ActiveLearning:
             # acquisition find next candidate
             self._acquisition()
 
+            if i % self.save_iter == 0:
+                self.save_to_file(self.save_dir)
+
             # update verbose statements
             if self.verbose >= 2:
                 if i%10 == 0:
@@ -101,7 +104,7 @@ class ActiveLearning:
         joblib.dump(stats,os.path.join(folder,'stats.pkl'))
         # Observations
         _ = torch.save({
-            key:getattr(self,key) for key in ['train_x','train_y','train_folds']
+            key:getattr(self,key) for key in ['train_x','train_y']
         },os.path.join(folder,'model_train.pt'))
         # model state dict
         _ = torch.save(self.model.state_dict(),os.path.join(folder,'model_state.pth'))
