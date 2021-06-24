@@ -126,7 +126,7 @@ class MLPCVObj(SklearnCVObj):
             optimizer=getattr(torch.optim,self.optimizer),
             optimizer__lr = params['lr'],
             optimizer__param_groups = param_groups,
-            max_epochs=self.max_epochs,
+            max_epochs=params['max_epochs'],
             batch_size=params['batch_size'],
             train_split=None,
             verbose=0
