@@ -31,6 +31,11 @@ class CVObjective:
             # encoded categorical outputs
             self.y = LabelEncoder().fit_transform(self.y)
         self.scale_output = scale_output
+        if self.scale_output and self.task=='regression':
+            self.y_std = np.std(self.y)
+            self.y_mean = np.mean(self.y)
+            self.y = (self.y-self.y_mean)/self.y_std
+
         self.input_preprocessor = input_preprocessor
         self.num_jobs = num_jobs
     
