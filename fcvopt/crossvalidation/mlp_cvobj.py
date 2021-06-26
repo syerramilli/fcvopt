@@ -11,6 +11,7 @@ class MLP(nn.Module):
     def __init__(
         self,
         h_sizes:List[int],
+        dropouts:List[float],
         output_dim:int,
         numerical_index:int,
         activation:str='Sigmoid',
@@ -32,9 +33,10 @@ class MLP(nn.Module):
         self.register_buffer('numerical_index',torch.tensor(numerical_index).long())
 
         hidden_layers = []
-        for hsize in h_sizes:
+        for hsize,droprate in zip(h_sizes,dropouts):
             hidden_layers.append(nn.Linear(input_dim,hsize))
             hidden_layers.append(getattr(nn,activation)())
+            hidden_layers.append(nn.Dropout(droprate))
             input_dim = hsize
         
         self.hidden_layers = nn.Sequential(*hidden_layers)  
@@ -86,6 +88,9 @@ class MLPCVObj(SklearnCVObj):
         h_sizes = [
             params['hsize%d'%i] for i in range(self.num_hidden) 
         ]
+        dropouts = [
+            params['dropout%d'%i] for i in range(self.num_hidden) 
+        ]
         
         param_groups = [
             ('hidden*.%d.weight'%i,{'weight_decay':params['lam%d'%i]}) \
@@ -115,6 +120,7 @@ class MLPCVObj(SklearnCVObj):
             module = MLP,
             criterion=criterion,
             module__h_sizes=h_sizes,
+            module__dropouts=dropouts,
             module__output_dim=self.num_targets,
             module__activation=self.activation,
             module__numerical_index=self.numerical_index,
