@@ -20,13 +20,16 @@ class HammingKernel(Kernel):
         self.register_prior(
             'rho_prior',
             BetaPrior(1.,5.),
-            param_or_closure=lambda: self.rho,
-            setting_closure= lambda v: self._set_rho(v)
+            param_or_closure='rho'
         )
     
     @property
     def rho(self):
         return self.raw_rho_constraint.transform(self.raw_rho)
+    
+    @rho.setter
+    def rho(self,value):
+        self._set_rho(value)
     
     def _set_rho(self,value):
         raw_value = (

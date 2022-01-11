@@ -3,7 +3,7 @@ import gpytorch
 
 from gpytorch.models import ExactGP
 from gpytorch.kernels import ScaleKernel
-from gpytorch.constraints import GreaterThan,Positive
+from gpytorch.constraints import GreaterThan,Positive,Interval
 from gpytorch.priors import NormalPrior,LogNormalPrior
 from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior
 from typing import List
@@ -18,8 +18,6 @@ class GPR(ExactGP):
         train_y:torch.Tensor,
         correlation_kernel_class,
         noise:float=1e-4,
-        fix_noise:bool=False,
-        estimation_method:str='MAP'
     ) -> None:
     
         # initializing likelihood
@@ -41,25 +39,18 @@ class GPR(ExactGP):
         if noise is not None:
             self.likelihood.initialize(noise=noise)
 
-        if fix_noise:
-            self.likelihood.raw_noise.requires_grad_(False)
-        
         # Modules
         self.mean_module = gpytorch.means.ConstantMean()
         self.covar_module = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=self.train_inputs[0].size(1),
-                lengthscale_constraint=Positive(),
+                lengthscale_constraint=Interval(0.01, 10.),
             ),
             outputscale_constraint=Positive()
-        )
+        )  
 
-        # priors
-        if not fix_noise:
-            noise_prior = LogUniformPrior(1e-8,2.) if estimation_method == 'MAP' \
-                else HalfHorseshoePrior(0.1)
-            self.likelihood.register_prior('noise_prior',noise_prior,'noise')
-
+        # register priors
+        self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
         self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
         self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
@@ -127,6 +118,7 @@ class GPR(ExactGP):
     def reset_parameters(self):
         # sample the hyperparameters from their respective priors
         # Note: samples in place
-        for _,prior,closure,setting_closure in self.named_priors():
-            num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
-            setting_closure(prior.sample(num_samples))
+        for _,module,prior,closure,setting_closure in self.named_priors():
+            if not closure(module).requires_grad:
+                continue
+            setting_closure(module,prior.expand(closure(module).shape).sample())

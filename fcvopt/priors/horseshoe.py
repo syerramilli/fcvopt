@@ -23,7 +23,7 @@ class HalfHorseshoePrior(Prior):
     """
 
     arg_constraints = {"scale": constraints.positive}
-    support = constraints.positive
+    support = constraints.greater_than_eq(1e-8)
     _validate_args = True
 
     def __init__(self, scale, validate_args=False):
@@ -40,11 +40,11 @@ class HalfHorseshoePrior(Prior):
         self._transform = None
 
     def log_prob(self, X):
-        flag = self.lb.le(X).type_as(self.lb)
+        #flag = self.lb.le(X).type_as(self.lb)
         A = (self.scale / self.transform(X)) ** 2
         lb = self.K / 2 * torch.log(1 + 4 * A)
         ub = self.K * torch.log(1 + 2 * A)
-        return torch.log((lb + ub) / 2)+torch.log(flag)
+        return torch.log((lb + ub) / 2)
 
     def rsample(self, sample_shape=torch.Size([])):
         local_shrinkage = HalfCauchy(1).rsample(self.scale.shape).to(self.lb)

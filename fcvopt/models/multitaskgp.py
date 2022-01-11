@@ -2,7 +2,7 @@ import torch
 import gpytorch
 
 from gpytorch.models import ExactGP
-from gpytorch.constraints import GreaterThan,Positive
+from gpytorch.constraints import GreaterThan,Positive,Interval
 from gpytorch.priors import NormalPrior,LogNormalPrior
 from ..priors import HalfHorseshoePrior,LogUniformPrior
 from ..kernels import MultiTaskKernel
@@ -19,9 +19,7 @@ class MultitaskGPModel(ExactGP):
         train_y:torch.Tensor,
         num_tasks:int,
         correlation_kernel_class,
-        noise:float=1e-4,
-        fix_noise:bool=False,
-        estimation_method:str='MAP'
+        noise:float=1e-4
     ) -> None:
 
         # initializing likelihood
@@ -51,16 +49,12 @@ class MultitaskGPModel(ExactGP):
         self.mean_module = gpytorch.means.ConstantMean()
         self.covar_module = correlation_kernel_class(
             ard_num_dims=self.train_inputs[0].size(1),
-            lengthscale_constraint=Positive(),
+            lengthscale_constraint=Interval(0.01, 10.),
         )
         self.task_covar_module = MultiTaskKernel(num_tasks)
 
         # priors
-        if not fix_noise:
-            noise_prior = LogUniformPrior(1e-8,2.) if estimation_method == 'MAP' \
-                else HalfHorseshoePrior(0.1)
-            self.likelihood.register_prior('noise_prior',noise_prior,'noise')
-
+        self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
         self.covar_module.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
 
@@ -82,9 +76,10 @@ class MultitaskGPModel(ExactGP):
 
         # sample the hyperparameters from their respective priors
         # Note: samples in place
-        for _,prior,closure,setting_closure in self.named_priors():
-            num_samples = (1,) if len(prior.shape()) > 0 else closure().shape
-            setting_closure(prior.sample(num_samples))
+        for _,module,prior,closure,setting_closure in self.named_priors():
+            if not closure(module).requires_grad:
+                continue
+            setting_closure(module,prior.expand(closure(module).shape).sample())
     
     def predict(self,x,i=None,return_std=False,marginalize=False):
         '''

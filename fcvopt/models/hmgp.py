@@ -2,7 +2,7 @@ import torch
 import gpytorch
 
 from gpytorch.kernels import ScaleKernel
-from gpytorch.constraints import GreaterThan,Positive
+from gpytorch.constraints import GreaterThan,Positive,Interval
 from gpytorch.priors import LogNormalPrior
 from .gpregression import GPR
 from ..priors import LogUniformPrior
@@ -23,22 +23,19 @@ class HGP(GPR):
         train_x:torch.Tensor,
         train_y:torch.Tensor,
         correlation_kernel_class,
-        noise:float=1e-4,
-        fix_noise:bool=False,
-        estimation_method:str='MAP'
+        noise:float=1e-4
     ) -> None:
         super().__init__(
             train_x=train_x,train_y=train_y,
             correlation_kernel_class=correlation_kernel_class,
-            noise=noise,fix_noise=fix_noise,
-            estimation_method=estimation_method
+            noise=noise
         )
 
         # similar to f
         self.covar_module_delta = ScaleKernel(
             base_kernel = correlation_kernel_class(
                 ard_num_dims=train_x[0].size(1),
-                lengthscale_constraint=Positive(),
+                lengthscale_constraint=Interval(0.01, 10.),
                 lengthscale_prior=LogUniformPrior(0.01,10.)
             ),
             outputscale_prior=LogNormalPrior(-2.,2.),

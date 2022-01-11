@@ -13,6 +13,10 @@ class LogUniform(dist.TransformedDistribution):
 
         super(LogUniform, self).__init__(dist.Uniform(lb.log(), ub.log()),
                                          dist.ExpTransform())
+    
+    @dist.constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return dist.constraints.interval(self.base_dist.low.exp(),self.base_dist.high.exp())
 
 class LogUniformPrior(Prior, LogUniform):
     """

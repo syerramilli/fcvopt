@@ -1,60 +1,117 @@
-import re
+import warnings
 import torch
+import numpy as np
 import gpytorch
 import pyro
-from pyro.infer.mcmc import NUTS,HMC,MCMC
-from .fit_model import fit_model_unconstrained
+import gpytorch.settings as gptsettings
+from gpytorch.utils.errors import NanError,NotPSDError
+from pyro.infer.mcmc import MCMC,NUTS
+from pyro.infer.autoguide import init_to_value
+
+from . import HGP
+from ._pyro_models import pyro_gp,pyro_hgp
+
 from typing import Optional, Dict, Tuple
 from collections import OrderedDict
+from copy import deepcopy
 
-def pyro_model(
+def get_samples(samples,num_samples=None, group_by_chain=False):
+    """
+    Get samples from the MCMC run
+
+    :param int num_samples: Number of samples to return. If `None`, all the samples
+        from an MCMC chain are returned in their original ordering.
+    :param bool group_by_chain: Whether to preserve the chain dimension. If True,
+        all samples will have num_chains as the size of their leading dimension.
+    :return: dictionary of samples keyed by site name.
+    """
+    if num_samples is not None:
+        batch_dim = 0
+        sample_tensor = list(samples.values())[0]
+        batch_size, device = sample_tensor.shape[batch_dim], sample_tensor.device
+        idxs = torch.linspace(0,batch_size-1,num_samples,dtype=torch.long,device=device).flip(0)
+        samples = {k: v.index_select(batch_dim, idxs) for k, v in samples.items()}
+    return samples
+
+def run_hmc_seq(
     model:gpytorch.models.ExactGP,
-    mll:gpytorch.mlls.ExactMarginalLogLikelihood
+    num_samples:int=500,
+    warmup_steps:int=500,
+    num_model_samples:int=50,
+    disable_progbar:bool=True,
+    init_params:Dict=None,
+    num_chains:int=1,
+    num_jobs:int=1,
+    max_tree_depth:int=5,
 ):
-    model.pyro_sample_from_prior()
-    output = model(*model.train_inputs)
-    loss = mll.pyro_factor(output,model.train_targets)
-    return model.train_targets
+    if init_params is None:
+        init_values={}
+        for name,module,prior,closure,_ in model.named_priors():
+            init_values[name] = prior.expand(closure(module).shape).sample()
 
-def mcmc_run(
-    model:gpytorch.models.ExactGP,
-    initial_params:Optional[Dict]=None,
-    step_size:float=1.0,
-    adapt_step_size:bool=True,
-    num_samples:int=100,
-    warmup_steps:int=100,
-    num_model_samples:int=30,
-    disable_progbar:bool=True
-) -> Tuple[Dict,float]:
+        init_params = {
+            'step_size':0.1,
+            'inverse_mass_matrix':None,
+            'init_values':init_values,
+        }
     
-    num_restarts = 9
-    if initial_params is not None:
-        model.initialize(**initial_params)
-        num_restarts = 4
+    if isinstance(model,HGP):
+        kwargs = {
+            'x_aug':model.train_inputs,
+            'y':model.train_targets,
+            'jitter':model.likelihood.noise_covar.raw_noise_constraint.lower_bound.item()
+        }
 
-    # initialize HMC with a local mode of the posterior
-    with gpytorch.settings.fast_computations(log_prob=False):
-        _ = fit_model_unconstrained(model,num_restarts=num_restarts)
+        pyro_model = pyro_hgp
+    else:
+        kwargs = {
+            'x':model.train_inputs[0],
+            'y':model.train_targets,
+            'jitter':model.likelihood.noise_covar.raw_noise_constraint.lower_bound.item()
+        }
+
+        pyro_model = pyro_gp
     
-    mll = gpytorch.mlls.ExactMarginalLogLikelihood(model.likelihood,model)
-    nuts_kernel = NUTS(pyro_model,step_size=step_size,
-                      adapt_step_size=adapt_step_size)
-    mcmc = MCMC(
-        kernel=nuts_kernel,
+    hmc_kernel = NUTS(
+        pyro_model,
+        step_size=init_params['step_size'],
+        adapt_step_size=True,
+        max_tree_depth=max_tree_depth,
+        init_strategy=init_to_value(values=init_params['init_values']),
+        full_mass=False,
+        jit_compile=False,
+    )
+    if init_params['inverse_mass_matrix'] is not None:
+        setattr(
+            hmc_kernel.mass_matrix_adapter,
+            'inverse_mass_matrix',
+            init_params['inverse_mass_matrix']
+        )
+
+    mcmc_run = MCMC(
+        kernel=hmc_kernel,
         num_samples=num_samples,
         warmup_steps=warmup_steps,
-        disable_progbar=disable_progbar
+        disable_progbar=disable_progbar,
+        num_chains=1,
     )
-
+    
     # run mcmc
-    mcmc.run(model=model,mll=mll)
+    mcmc_run.run(**kwargs)
+    samples = {k:v for k,v in get_samples(deepcopy(mcmc_run.get_samples()),num_model_samples).items()}
 
     # load_samples and remove gradients
-    model.pyro_load_from_samples(mcmc.get_samples(num_model_samples))
-    initial_params = OrderedDict()
-    for name,parameter in model.named_parameters():
+    model.pyro_load_from_samples(samples)
+    # removing gradients on the model hyperparameters
+    for _,parameter in model.named_parameters():
         if parameter.requires_grad:
             parameter.requires_grad_(False)
-            initial_params[name]=parameter[0,...]
+    
+    # return last parameter state
+    last_params = {
+        'step_size':hmc_kernel.step_size,
+        'inverse_mass_matrix':hmc_kernel.mass_matrix_adapter.inverse_mass_matrix,
+        'init_values':  {k:v[-1,...] for k,v in deepcopy(mcmc_run.get_samples()).items()}
+    }
 
-    return initial_params
+    return mcmc_run,last_params

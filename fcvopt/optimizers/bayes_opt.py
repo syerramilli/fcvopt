@@ -8,7 +8,8 @@ import joblib
 
 from .. import kernels
 from ..models import GPR
-from ..models.emcee_utils import EnsembleMCMC
+#from ..models.emcee_utils import EnsembleMCMC
+from ..models.mcmc_utils import run_hmc_seq
 from ..models.fit_model import fit_model_unconstrained
 from ..acquisition import LowerConfidenceBound,LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
@@ -23,7 +24,6 @@ class BayesOpt:
         self,
         obj:Callable,
         config:ConfigurationSpace,
-        deterministic:bool=True,
         estimation_method:str='MAP',
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
@@ -33,7 +33,6 @@ class BayesOpt:
     ):
         self.obj = obj
         self.config = config
-        self.deterministic = deterministic
         self.estimation_method = estimation_method
         if correlation_kernel_class is None:
             self.correlation_kernel_class = kernels.Matern52Kernel
@@ -175,10 +174,16 @@ class BayesOpt:
 
         start_time = time.time()
         if self.estimation_method == 'MCMC':
-            num_steps = 200 if self.initial_params is not None else 1000
-            burnin = 200 if self.initial_params is not None else 1000
-            mcmc = EnsembleMCMC(self.model,burnin,num_steps,p0=self.initial_params)
-            self.initial_params = mcmc.run(progress=True)
+            _,self.initial_params = run_hmc_seq(
+                model=self.model,
+                warmup_steps=500 if self.initial_params is None else 100,
+                num_samples=500 if self.initial_params is None else 200,
+                num_model_samples=50,
+                disable_progbar=True,
+                num_chains=1,
+                max_tree_depth=5,
+                init_params=self.initial_params,
+            )
             
         elif self.estimation_method == 'MAP':
             if self.initial_params is not None:
@@ -212,14 +217,11 @@ class BayesOpt:
         self.f_inc_est.append(train_pred[fmin_index].item())
     
     def _construct_model(self):
-        noise = 1e-4 if self.deterministic else 1e-2
         return GPR(
             train_x = self.train_x,
             train_y = self.train_y,
             correlation_kernel_class=self.correlation_kernel_class,
-            noise=noise,
-            fix_noise=self.deterministic,
-            estimation_method=self.estimation_method
+            noise=1e-4,
         ).double()
     
     def _calculate_prior_sigma(self) -> float:
@@ -241,7 +243,7 @@ class BayesOpt:
         acqopt = AcqFunOptimizer(
             acq_fun=acqobj,
             ndim = len(self.config.quant_index),
-            num_starts = max(10,2*len(self.config.quant_index)),
+            num_starts = max(10,5*len(self.config.quant_index)),
             x0=self.confs_inc[-1].get_array(),
             num_jobs=1 # TODO: add support for parallelization
         )

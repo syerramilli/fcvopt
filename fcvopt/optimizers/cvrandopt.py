@@ -4,7 +4,6 @@ import time
 import torch
 from .bayes_opt import BayesOpt
 from ..models import GPR
-from ..models.mcmc_utils import mcmc_run
 from ..acquisition import LowerConfidenceBoundMCMC
 from .acqfunoptimizer import AcqFunOptimizer
 
@@ -19,7 +18,6 @@ class CVRandOpt(BayesOpt):
         n_folds:int,
         n_repeats:int,
         config:ConfigurationSpace,
-        deterministic:str=False,
         estimation_method:str='MAP',
         fold_initialization:str='random',
         correlation_kernel_class:Optional[str]=None,
@@ -29,7 +27,7 @@ class CVRandOpt(BayesOpt):
         save_dir:Optional[int]=None
     ):
         super().__init__(
-            obj=obj,config=config,deterministic=deterministic,
+            obj=obj,config=config,
             estimation_method=estimation_method,
             correlation_kernel_class=correlation_kernel_class,
             kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir

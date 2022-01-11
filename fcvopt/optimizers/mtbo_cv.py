@@ -19,7 +19,6 @@ class MTBOCVOpt(BayesOpt):
         obj:Callable,
         n_folds:int,
         config:ConfigurationSpace,
-        deterministic:str=False,
         estimation_method:str='MAP',
         fold_selection_criterion:str='single-task-ei',
         correlation_kernel_class:Optional[str]=None,
@@ -29,7 +28,7 @@ class MTBOCVOpt(BayesOpt):
         save_dir:Optional[int]=None
     ):
         super().__init__(
-            obj=obj,config=config,deterministic=deterministic,
+            obj=obj,config=config,
             estimation_method=estimation_method,
             correlation_kernel_class=correlation_kernel_class,
             kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir
@@ -87,15 +86,12 @@ class MTBOCVOpt(BayesOpt):
                 self.fold_wise_opts[next_fold[0]] = next_y
     
     def _construct_model(self):
-        noise = 1e-4 if self.deterministic else 1e-2
         return MultitaskGPModel(
             train_x = (self.train_x,self.train_folds),
             train_y = self.train_y,
             num_tasks=self.n_folds,
             correlation_kernel_class=self.correlation_kernel_class,
-            noise=noise,
-            fix_noise=self.deterministic,
-            estimation_method='MAP'
+            noise=1e-4,
         ).double()
     
     def _acquisition(self) -> None:
