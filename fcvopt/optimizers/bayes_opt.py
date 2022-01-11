@@ -78,6 +78,10 @@ class BayesOpt:
             # acquisition find next candidate
             self._acquisition()
 
+            if self.save_iter is not None:
+                if i % self.save_iter == 0:
+                    self.save_to_file(self.save_dir)
+
             # update verbose statements
             if self.verbose >= 2:
                 if i%10 == 0:
