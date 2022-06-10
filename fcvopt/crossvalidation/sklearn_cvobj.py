@@ -18,13 +18,15 @@ class SklearnCVObj(CVObjective):
         holdout=False,
         task='regression', 
         scale_output=False, 
-        input_preprocessor=None, 
+        input_preprocessor=None,
+        stratified=False, 
         num_jobs=1
     ):
         super().__init__(
             X, y, loss_metric, n_splits=n_splits, n_repeats=n_repeats, 
             holdout=holdout, task=task, scale_output=scale_output, 
-            input_preprocessor=input_preprocessor, num_jobs=num_jobs
+            input_preprocessor=input_preprocessor, 
+            stratified=stratified,num_jobs=num_jobs
         )
 
         self.estimator = estimator

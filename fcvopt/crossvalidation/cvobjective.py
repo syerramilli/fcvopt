@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import RepeatedKFold,RepeatedStratifiedKFold
 from joblib import Parallel,delayed
 from typing import Callable,List,Optional,Dict,Tuple
 
@@ -15,14 +15,18 @@ class CVObjective:
         task:str='regression',
         scale_output:bool=False,
         input_preprocessor=None,
+        stratified:bool=True,
         num_jobs:int=1 # writing it is as num_jobs to distinguish it from sklearn's n_jobs
     ):
         self.X = X
         self.y = y
         self.task = task
         self.loss_metric = loss_metric
-        self.cv = RepeatedKFold(n_splits=n_splits,n_repeats=n_repeats)
-        self.train_test_splits = list(self.cv.split(X)) # initial splits
+        if stratified:
+            self.cv = RepeatedStratifiedKFold(n_splits=n_splits,n_repeats=n_repeats)
+        else:
+            self.cv = RepeatedKFold(n_splits=n_splits,n_repeats=n_repeats)
+        self.train_test_splits = list(self.cv.split(X,y)) # initial splits
         self.holdout = holdout
         if self.holdout:
             self.train_test_splits = self.train_test_splits[0:1]
