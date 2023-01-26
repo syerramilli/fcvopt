@@ -24,14 +24,13 @@ class FCVOpt(BayesOpt):
         correlation_kernel_class:Optional[str]=None,
         kappa:float=2.,
         verbose:int=0.,
-        save_iter:Optional[int]=None,
-        save_dir:Optional[int]=None
+        **kwargs
     ):
         super().__init__(
             obj=obj,config=config,
             estimation_method=estimation_method,
             correlation_kernel_class=correlation_kernel_class,
-            kappa=kappa,verbose=verbose,save_iter=save_iter,save_dir = save_dir
+            kappa=kappa,verbose=verbose,**kwargs
         )
         # fold indices and candidates not present in BayesOpt
         # TODO: add checks for the validity of fold_selection criterion

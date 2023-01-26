@@ -29,7 +29,8 @@ class BayesOpt:
         kappa:float=2.,
         verbose:int=0.,
         save_iter:Optional[int]=None,
-        save_dir:Optional[int]=None
+        save_dir:Optional[int]=None,
+        jit_compile:bool=False
     ):
         self.obj = obj
         self.config = config
@@ -61,6 +62,8 @@ class BayesOpt:
         self.obj_eval_time = []
         # mcmc parameters
         self.initial_params = None
+        if self.estimation_method == 'MCMC':
+            self.jit_compile = jit_compile
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
@@ -178,16 +181,18 @@ class BayesOpt:
 
         start_time = time.time()
         if self.estimation_method == 'MCMC':
-            _,self.initial_params = run_hmc_seq(
-                model=self.model,
-                warmup_steps=500 if self.initial_params is None else 100,
-                num_samples=500 if self.initial_params is None else 200,
-                num_model_samples=50,
-                disable_progbar=True,
-                num_chains=1,
-                max_tree_depth=5,
-                init_params=self.initial_params,
-            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                _,self.initial_params = run_hmc_seq(
+                    model=self.model,
+                    warmup_steps=500 if self.initial_params is None else 200,
+                    num_samples=500 if self.initial_params is None else 200,
+                    num_model_samples=50,
+                    disable_progbar=True,
+                    max_tree_depth=5,
+                    init_params=self.initial_params,
+                    jit_compile=self.jit_compile
+                )
             
         elif self.estimation_method == 'MAP':
             if self.initial_params is not None:
