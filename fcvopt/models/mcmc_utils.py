@@ -40,9 +40,8 @@ def run_hmc_seq(
     num_model_samples:int=50,
     disable_progbar:bool=True,
     init_params:Dict=None,
-    num_chains:int=1,
-    num_jobs:int=1,
     max_tree_depth:int=5,
+    jit_compile:bool=False
 ):
     if init_params is None:
         init_values={}
@@ -79,7 +78,7 @@ def run_hmc_seq(
         max_tree_depth=max_tree_depth,
         init_strategy=init_to_value(values=init_params['init_values']),
         full_mass=False,
-        jit_compile=False,
+        jit_compile=jit_compile,
     )
     if init_params['inverse_mass_matrix'] is not None:
         setattr(
