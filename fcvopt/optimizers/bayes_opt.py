@@ -6,14 +6,16 @@ import gpytorch
 import warnings
 import joblib
 
-from .. import kernels
 from ..models import GPR
-#from ..models.emcee_utils import EnsembleMCMC
-from ..models.mcmc_utils import run_hmc_seq
-from ..models.fit_model import fit_model_unconstrained
-from ..acquisition import LowerConfidenceBound,LowerConfidenceBoundMCMC
-from .acqfunoptimizer import AcqFunOptimizer
+from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
+
+from botorch.acquisition import (
+    ExpectedImprovement,qExpectedImprovement,
+    UpperConfidenceBound, qUpperConfidenceBound
+)
+from botorch.optim import optimize_acqf
+from botorch.sampling import SobolQMCNormalSampler
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -24,27 +26,29 @@ class BayesOpt:
         self,
         obj:Callable,
         config:ConfigurationSpace,
-        estimation_method:str='MAP',
-        correlation_kernel_class:Optional[str]=None,
-        kappa:float=2.,
-        verbose:int=0.,
+        minimize:bool=True,
+        acq_function:str='EI',
+        acq_function_options:Optional[Dict]={},
+        batch_acquisition:bool=False,
+        acquisition_q:int=1,
+        verbose:int=1,
         save_iter:Optional[int]=None,
         save_dir:Optional[int]=None,
-        jit_compile:bool=False
+        n_jobs:int=1
     ):
         self.obj = obj
         self.config = config
-        self.estimation_method = estimation_method
-        if correlation_kernel_class is None:
-            self.correlation_kernel_class = kernels.Matern52Kernel
-        else:
-            self.correlation_kernel_class = getattr(kernels,correlation_kernel_class)
-        
-        self.kappa=kappa
+        self.minimize=minimize
+        self.sign_mul = -1 if self.minimize else 1
+        self.acq_function = acq_function
+        self.batch_acquisition = batch_acquisition
+        self.acquisition_q = acquisition_q
+
+        self.acq_function_options = acq_function_options
         self.verbose=verbose
-        # TODO: work on this
         self.save_iter = save_iter
         self.save_dir = save_dir
+        self.n_jobs = 1
 
         # initialize objects
         self.model = None
@@ -56,14 +60,10 @@ class BayesOpt:
         self.f_inc_obs = []
         self.f_inc_est = []
         self.acq_vec = []
-        self.sigma_vec = []
         self.fit_time = []
         self.acqopt_time = []
         self.obj_eval_time = []
-        # mcmc parameters
         self.initial_params = None
-        if self.estimation_method == 'MCMC':
-            self.jit_compile = jit_compile
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
@@ -99,16 +99,10 @@ class BayesOpt:
                       self.acq_vec[-1]))
         
         if self.verbose >= 1:
-            est_cand = self.model.predict(
-                torch.tensor(self.confs_cand[-1].get_array())
-                .to(self.train_x)
-                .view(1,-1)
-            )
             print('')
             print('Number of candidates evaluated.....: %g' % len(self.train_confs))
             print('Observed obj at incumbent..........: %g' % self.f_inc_obs[-1])
             print('Estimated obj at incumbent.........: %g' % self.f_inc_est[-1])
-            print('Estimated obj at candidate.........: %g' % est_cand)
             print('')
             print('Incumbent at termination:')
             print(self.confs_inc[-1])
@@ -127,7 +121,7 @@ class BayesOpt:
     def save_to_file(self,folder):
         #  optimization statistics
         stat_keys = [
-            'f_inc_obs','f_inc_est','acq_vec','sigma_vec',
+            'f_inc_obs','f_inc_est','acq_vec',
             'confs_inc','confs_cand',
             'fit_time','acqopt_time','obj_eval_time',
         ]
@@ -137,7 +131,7 @@ class BayesOpt:
         joblib.dump(stats,os.path.join(folder,'stats.pkl'))
         # Observations
         _ = torch.save({
-            key:getattr(self,key) for key in ['train_x','train_y','train_folds']
+            key:getattr(self,key) for key in ['train_x','train_y']
         },os.path.join(folder,'model_train.pt'))
         # model state dict
         _ = torch.save(self.model.state_dict(),os.path.join(folder,'model_state.pth'))
@@ -162,12 +156,21 @@ class BayesOpt:
         else:
             # algorithm has been run previously
             # evaluate the next candidate 
-            next_conf = self.confs_cand[-1]
-            next_x,next_y,eval_time = self._evaluate(next_conf)
-            self.train_confs.append(next_conf)
-            self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
-            self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
-            self.obj_eval_time.append(eval_time)
+            next_confs_list = self.confs_cand[-1]
+
+            if self.n_jobs > 1 and len(next_confs_list) > 1:
+                # parallel logic
+                evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
+                    joblib.delayed(self._evaluate)(next_conf) for next_conf in next_confs_list
+                )
+            else:
+                evaluations = [self._evaluate(next_conf) for next_conf in next_confs_list]
+            
+            for next_conf,(next_x,next_y,eval_time) in zip(next_confs_list,evaluations):
+                self.train_confs.append(next_conf)
+                self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
+                self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
+                self.obj_eval_time.append(eval_time)
     
     def _evaluate(self,conf,**kwargs):
         start_time = time.time()
@@ -180,84 +183,63 @@ class BayesOpt:
         self.model = self._construct_model()
 
         start_time = time.time()
-        if self.estimation_method == 'MCMC':
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
-                _,self.initial_params = run_hmc_seq(
-                    model=self.model,
-                    warmup_steps=500 if self.initial_params is None else 200,
-                    num_samples=500 if self.initial_params is None else 200,
-                    num_model_samples=50,
-                    disable_progbar=True,
-                    max_tree_depth=5,
-                    init_params=self.initial_params,
-                    jit_compile=self.jit_compile
-                )
+        if self.initial_params is not None:
+            self.model.initialize(**self.initial_params)
+
+        _ = fit_model_scipy(model = self.model,num_restarts = 5)
+
+        self.initial_params = OrderedDict()
             
-        elif self.estimation_method == 'MAP':
-            if self.initial_params is not None:
-                self.model.initialize(**self.initial_params)
-
-            _ = fit_model_unconstrained(
-                model = self.model,
-                num_restarts = 9
-            )
-
-            self.initial_params = OrderedDict()
-            # disable model gradients
-            for name,parameter in self.model.named_parameters():
-                parameter.requires_grad_(False)
-                self.initial_params[name] = parameter
-
         self.fit_time.append(time.time()-start_time)
 
-        # update sigma vec
-        self.sigma_vec.append(self._calculate_prior_sigma())
+        # disable model gradients
+        for name,parameter in self.model.named_parameters():
+            parameter.requires_grad_(False)
+            self.initial_params[name] = parameter
 
         # find incumbent
         with warnings.catch_warnings(),torch.no_grad(): 
             warnings.simplefilter(action='ignore',category=gpytorch.utils.warnings.GPInputWarning)
             train_pred = torch.tensor([
                 self.model.predict(x.view(1,-1)) for x in self.train_x
-            ]).double()
-        fmin_index = train_pred.argmin().item()
+            ])
+
+        fmin_index = train_pred.argmax().item() 
         self.confs_inc.append(self.train_confs[fmin_index])
         self.f_inc_obs.append(self.train_y[fmin_index].item())
-        self.f_inc_est.append(train_pred[fmin_index].item())
+        self.f_inc_est.append(self.sign_mul*train_pred[fmin_index].item())
     
     def _construct_model(self):
         return GPR(
             train_x = self.train_x,
-            train_y = self.train_y,
-            correlation_kernel_class=self.correlation_kernel_class,
-            noise=1e-4,
+            train_y = self.sign_mul*self.train_y,
         ).double()
     
-    def _calculate_prior_sigma(self) -> float:
-        var_vec = self.model.covar_module.outputscale*(self.model.y_std**2)
-        
-        if self.estimation_method  == 'MAP':
-            return var_vec.sqrt().item()
-        
-        # else MCMC
-        mean_vec = self.model.mean_module.constant*self.model.y_std + self.model.y_mean
-        return torch.sqrt(mean_vec.var()+var_vec.mean()).item()
-    
     def _acquisition(self) -> None:
-        if self.estimation_method == 'MAP':
-            acqobj = LowerConfidenceBound(self.model,kappa=self.kappa)
-        else:
-            acqobj = LowerConfidenceBoundMCMC(self.model,kappa=self.kappa)
-        
-        acqopt = AcqFunOptimizer(
-            acq_fun=acqobj,
-            ndim = len(self.config.quant_index),
-            num_starts = max(10,5*len(self.config.quant_index)),
-            x0=self.confs_inc[-1].get_array(),
-            num_jobs=1 # TODO: add support for parallelization
-        )
+        if self.acq_function == 'EI':
+            best_f = -self.f_inc_est[-1] if self.minimize else self.f_inc_est[-1]
+
+            if self.batch_acquisition:
+                sampler = SobolQMCNormalSampler(512)
+                acqobj = qExpectedImprovement(self.model,best_f,sampler)
+            else:
+                acqobj = ExpectedImprovement(self.model, best_f)
+        elif self.acq_function == 'LCB':
+            if self.batch_acquisition:
+                sampler = SobolQMCNormalSampler(512)
+                acqobj = qUpperConfidenceBound(self.model, torch.tensor(2.))
+            else:
+                acqobj = UpperConfidenceBound(self.model, torch.tensor(2.))
+
         start_time = time.time()
-        next_x = acqopt.run()
-        self.acqopt_time.append(time.time()-start_time)
-        self.confs_cand.append(self.config.get_conf_from_array(next_x))
-        self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
+        new_x, max_acq = optimize_acqf(
+            acqobj, 
+            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]),
+            q=1 if not self.batch_acquisition else self.acquisition_q,
+            num_restarts=20,
+            raw_samples=200
+        )
+        end_time = time.time()
+        self.acqopt_time.append(end_time-start_time)
+        self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
+        self.acq_vec.append(max_acq.item())
