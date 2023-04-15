@@ -1,7 +1,23 @@
+import math
 import torch
-from torch.distributions import Beta,constraints
 from torch.nn import Module as TModule
 from gpytorch.priors import Prior
+from torch.distributions import constraints,HalfCauchy, Beta
+from torch.distributions.utils import broadcast_all
+from numbers import Number
+
+class HalfCauchyPrior(Prior, HalfCauchy):
+    """
+    Half-Cauchy prior.
+    """
+
+    def __init__(self, scale, validate_args=None, transform=None):
+        TModule.__init__(self)
+        HalfCauchy.__init__(self, scale=scale, validate_args=validate_args)
+        self._transform = transform
+
+    def expand(self, batch_shape):
+        return HalfCauchyPrior(self.scale.expand(batch_shape))
 
 class BetaPrior(Prior, Beta):
     """ Beta Prior parameterized by concentration parameters
@@ -22,3 +38,4 @@ class BetaPrior(Prior, Beta):
 
     def __call__(self, *args, **kwargs):
         return super(Beta, self).__call__(*args, **kwargs)
+
