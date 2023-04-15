@@ -1,119 +1,72 @@
+import math
 import torch
 import gpytorch
-
+from gpytorch import kernels
 from gpytorch.models import ExactGP
-from gpytorch.kernels import ScaleKernel
-from gpytorch.constraints import GreaterThan,Positive,Interval
-from gpytorch.priors import NormalPrior,LogNormalPrior
-from fcvopt.priors import HalfHorseshoePrior,LogUniformPrior
-from typing import List
+from botorch.models.gpytorch import GPyTorchModel
+from botorch.models.transforms.outcome import Standardize
 
-class GPR(ExactGP):
-    '''
-    The standard GP regression class deriving from `gpytorch.models.ExactGP`
-    '''
+from gpytorch.constraints import GreaterThan,Positive
+from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
+
+from .priors import HalfCauchyPrior
+from .warp import InputWarp
+
+def exp_with_shift(x:torch.Tensor):
+    return 1e-6+x.exp()
+
+class GPR(ExactGP,GPyTorchModel):
+    _num_outputs=1 # needed for botorch functions
+
     def __init__(
         self,
         train_x:torch.Tensor,
         train_y:torch.Tensor,
-        correlation_kernel_class,
-        noise:float=1e-4,
+        warp_input:bool=False
     ) -> None:
     
         # initializing likelihood
-        noise_constraint=GreaterThan(1e-8)
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(
+            constraints=GreaterThan(1e-6,transform=torch.exp,inv_transform=torch.log)
+        )
 
-        # standardizing the response variable
-        y_mean,y_std = train_y.mean(),train_y.std()
-        train_y_sc = (train_y-y_mean)/y_std
+        outcome_transform = Standardize(1)
+        train_y_sc,_ = outcome_transform(train_y.unsqueeze(-1))
 
         # initializing ExactGP
-        super().__init__(train_x,train_y_sc,likelihood)
+        super().__init__(train_x,train_y_sc.squeeze(-1),likelihood)
 
-        # registering mean and std of the raw response
-        self.register_buffer('y_mean',y_mean)
-        self.register_buffer('y_std',y_std)
+        # register outcome transform
+        self.outcome_transform = outcome_transform
 
-        # initializing and fixing noise
-        if noise is not None:
-            self.likelihood.initialize(noise=noise)
+        # check if input warping is neeed
+        self.register_buffer('warp_input',torch.tensor(warp_input))
+        if self.warp_input:
+            self.input_warping = InputWarp(input_dim = train_x.shape[-1])
 
         # Modules
         self.mean_module = gpytorch.means.ConstantMean()
-        self.covar_module = ScaleKernel(
-            base_kernel = correlation_kernel_class(
+        self.covar_module = kernels.ScaleKernel(
+            base_kernel = kernels.MaternKernel(
                 ard_num_dims=self.train_inputs[0].size(1),
-                lengthscale_constraint=Interval(0.01, 10.),
+                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
+                nu=2.5
             ),
             outputscale_constraint=Positive()
         )  
 
         # register priors
-        self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
+        self.likelihood.register_prior('noise_prior',HalfCauchyPrior(0.1,transform=exp_with_shift),'raw_noise')
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
         self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
-        self.covar_module.base_kernel.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
+        self.covar_module.base_kernel.register_prior(
+            'lengthscale_prior',GammaPrior(3/2, 3.9/6),'lengthscale'
+        )
     
     def forward(self,x):
         mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
+        covar_x = self.covar_module(self.input_warping(x) if self.warp_input else x)
         return gpytorch.distributions.MultivariateNormal(mean_x,covar_x)
-    
-    def predict(self,x,return_std=False,marginalize=True):
-        '''
-        Returns the predictive mean and variance at the given points
-        '''
-        self.eval()
-        
-        # determine if batched or not
-        ndim = self.train_targets.ndim
-        if ndim == 1:
-            output = self._predict(x)
-        else:
-            num_samples = self.train_targets.shape[0]
-            output = self._predict(x.unsqueeze(0).repeat(num_samples,1,1))
-        
-        out_mean = self.y_mean + self.y_std*output.mean
-
-        # standard deviation may not always be needed
-        if return_std:
-            out_var = output.variance*self.y_std**2
-            if (ndim > 1) and marginalize:
-                # matching the second moment of the Gaussian mixture
-                out_std = torch.sqrt(out_var.mean(axis=0)+out_mean.var(axis=0))
-                out_mean = out_mean.mean(axis=0)
-            else:
-                out_std = out_var.sqrt() 
-            return out_mean,out_std
-        
-        if (ndim > 1) and marginalize:
-            out_mean = out_mean.mean(axis=0)
-
-        return out_mean
-    
-    def return_var(self,x):
-        self.eval()
-        
-        # determine if batched or not
-        ndim = self.train_targets.ndim
-        if ndim == 1:
-            output = self._predict(x)
-            return output.variance*self.y_std**2
-        else:
-            # Marginalize over the hyperparameter posterior
-            num_samples = self.train_targets.shape[0]
-            output = self._predict(x.unsqueeze(0).repeat(num_samples,1,1))
-
-            out_mean = self.y_mean + self.y_std*output.mean
-            out_var = output.variance*self.y_std**2
-
-            return out_var.mean(axis=0)+out_mean.var(axis=0)
-    
-    def _predict(self,*args,**kwargs):
-        # this method is not needed for GPR. However, subclasses such as HMGP
-        # have predictions different from the regular __call__ methods
-        return self.__call__(*args,**kwargs)
     
     def reset_parameters(self):
         # sample the hyperparameters from their respective priors
@@ -122,3 +75,15 @@ class GPR(ExactGP):
             if not closure(module).requires_grad:
                 continue
             setting_closure(module,prior.expand(closure(module).shape).sample())
+
+    def predict(self,x,return_std=False):
+        self.eval()
+
+        out_dist = self.posterior(x).mvn
+        out_mean = out_dist.loc
+
+        if return_std:
+            out_std = out_dist.stddev
+            return out_mean,out_std
+
+        return out_mean
