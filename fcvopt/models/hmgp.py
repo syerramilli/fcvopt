@@ -3,7 +3,7 @@ import gpytorch
 
 from gpytorch.kernels import ScaleKernel, MaternKernel
 from gpytorch.constraints import GreaterThan,Positive,Interval
-from gpytorch.priors import LogNormalPrior, GammaPrior
+from gpytorch.priors import LogNormalPrior, GammaPrior, HalfCauchyPrior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.models.utils import gpt_posterior_settings
 from .gpregression import GPR
@@ -34,10 +34,10 @@ class HGP(GPR):
             base_kernel = MaternKernel(
                 nu=2.5,
                 ard_num_dims=train_x[0].size(1),
-                lengthscale_constraint=Interval(0.01, 10.),
+                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
                 lengthscale_prior=GammaPrior(3/2, 3.9/6)
             ),
-            outputscale_prior=LogNormalPrior(-2.,3.),
+            outputscale_prior=HalfCauchyPrior(1.),
             outputscale_constraint=Positive(
                 initial_value=torch.tensor(0.1)
             )
