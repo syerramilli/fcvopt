@@ -4,6 +4,7 @@ import gpytorch
 from gpytorch import kernels
 from gpytorch.models import ExactGP
 from botorch.models.gpytorch import GPyTorchModel
+from botorch.models.model import FantasizeMixin
 from botorch.models.transforms.outcome import Standardize
 
 from gpytorch.constraints import GreaterThan,Positive
@@ -15,7 +16,7 @@ from .warp import InputWarp
 def exp_with_shift(x:torch.Tensor):
     return 1e-6+x.exp()
 
-class GPR(ExactGP,GPyTorchModel):
+class GPR(ExactGP,GPyTorchModel,FantasizeMixin):
     _num_outputs=1 # needed for botorch functions
 
     def __init__(

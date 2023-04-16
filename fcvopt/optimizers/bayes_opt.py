@@ -12,7 +12,8 @@ from ..configspace import ConfigurationSpace
 
 from botorch.acquisition import (
     ExpectedImprovement,qExpectedImprovement,
-    UpperConfidenceBound, qUpperConfidenceBound
+    UpperConfidenceBound, qUpperConfidenceBound,
+    qKnowledgeGradient, PosteriorMean
 )
 from botorch.optim import optimize_acqf
 from botorch.sampling import SobolQMCNormalSampler
@@ -67,12 +68,10 @@ class BayesOpt:
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
 
-        # output_header = '%6s %10s %10s %10s %12s' % \
-        #             ('iter', 'f_inc_obs', 'f_inc_est','acq_cand',"term_metric")
         output_header = '%6s %10s %10s %10s' % \
                     ('iter', 'f_inc_obs', 'f_inc_est','acq_cand')
         for i in range(n_iter):
-            # either initialize observations or evaluate the next candidate
+            # either initialize observations or evaluate the next candidate(s)
             self._initialize(n_init)
 
             # fit model and find incumbent
@@ -88,12 +87,8 @@ class BayesOpt:
             # update verbose statements
             if self.verbose >= 2:
                 if i%10 == 0:
-                    # print header every 19 iterations
+                    # print header every 10 iterations
                     print(output_header)
-                #term_metric = (self.f_inc_est[-1]-self.acq_vec[-1])/self.sigma_vec[-1]/self.kappa
-                # print('%6i %10.3e %10.3e %10.3e %12.4f' %\
-                #       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
-                #       self.acq_vec[-1],term_metric))
                 print('%6i %10.3e %10.3e %10.3e' %\
                       (i, self.f_inc_obs[-1],self.f_inc_est[-1],
                       self.acq_vec[-1]))
@@ -118,23 +113,30 @@ class BayesOpt:
 
         return results
 
-    def save_to_file(self,folder):
-        #  optimization statistics
-        stat_keys = [
+    @property
+    def stats_keys(self) -> List:
+        return [
             'f_inc_obs','f_inc_est','acq_vec',
             'confs_inc','confs_cand',
             'fit_time','acqopt_time','obj_eval_time',
         ]
+
+    @property
+    def data_keys(self)->List:
+        return ['train_x','train_y']
+
+    def save_to_file(self,path):
+        #  optimization statistics
         stats = {
-            key:getattr(self,key) for key in stat_keys
+            key:getattr(self,key) for key in self.stat_keys
         }
-        joblib.dump(stats,os.path.join(folder,'stats.pkl'))
+        joblib.dump(stats,os.path.join(path,'stats.pkl'))
         # Observations
         _ = torch.save({
-            key:getattr(self,key) for key in ['train_x','train_y']
-        },os.path.join(folder,'model_train.pt'))
+            key:getattr(self,key) for key in self.data_keys
+        },os.path.join(path,'model_train.pt'))
         # model state dict
-        _ = torch.save(self.model.state_dict(),os.path.join(folder,'model_state.pth'))
+        _ = torch.save(self.model.state_dict(),os.path.join(path,'model_state.pth'))
 
 
     def _initialize(self,n_init:Optional[int]=None):
@@ -145,8 +147,8 @@ class BayesOpt:
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = self.config.latinhypercube_sample(n_init)
 
-            for conf in self.train_confs:
-                x,y,eval_time = self._evaluate(conf)
+            evaluations = self._evaluate_confs(self.train_confs)
+            for x,y,eval_time in evaluations:
                 self.train_x.append(x)
                 self.train_y.append(y)
                 self.obj_eval_time.append(eval_time)
@@ -157,14 +159,7 @@ class BayesOpt:
             # algorithm has been run previously
             # evaluate the next candidate 
             next_confs_list = self.confs_cand[-1]
-
-            if self.n_jobs > 1 and len(next_confs_list) > 1:
-                # parallel logic
-                evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
-                    joblib.delayed(self._evaluate)(next_conf) for next_conf in next_confs_list
-                )
-            else:
-                evaluations = [self._evaluate(next_conf) for next_conf in next_confs_list]
+            evaluations = self._evaluate_confs(next_confs_list)
             
             for next_conf,(next_x,next_y,eval_time) in zip(next_confs_list,evaluations):
                 self.train_confs.append(next_conf)
@@ -177,6 +172,20 @@ class BayesOpt:
         y = self.obj(conf.get_dictionary(),**kwargs)
         eval_time = time.time()-start_time
         return conf.get_array(),y,eval_time
+
+    def _evaluate_confs(self,confs_list,**kwargs):
+        if self.n_jobs > 1 and len(confs_list) > 1:
+            # enable parallel evaulations
+            evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
+                joblib.delayed(self._evaluate)(conf,**kwargs) for conf in confs_list
+            )
+        else:
+            # can add logging here
+            evaluations = [None]*len(confs_list)
+            for i,conf in enumerate(confs_list):
+                evaluations[i] = self._evaluate(conf,**kwargs)
+        
+        return evaluations
     
     def _fit_model_and_find_inc(self) -> None:
         # construct model
@@ -216,6 +225,7 @@ class BayesOpt:
         ).double()
     
     def _acquisition(self) -> None:
+        preprocess_time = 0
         if self.acq_function == 'EI':
             best_f = -self.f_inc_est[-1] if self.minimize else self.f_inc_est[-1]
 
@@ -230,16 +240,28 @@ class BayesOpt:
                 acqobj = qUpperConfidenceBound(self.model, torch.tensor(2.))
             else:
                 acqobj = UpperConfidenceBound(self.model, torch.tensor(2.))
+        elif self.acq_function == 'KG':
+            # first must find the current best posterior mean 
+            start_time = time.time()
+            _, max_pmean = optimize_acqf(
+                acq_function=PosteriorMean(self.model),
+                bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
+                q=1,
+                num_restarts=20,
+                raw_samples=200,
+            )
+            preprocess_time = time.time()-start_time
+            acqobj = qKnowledgeGradient(self.model,current_value=max_pmean)
 
         start_time = time.time()
         new_x, max_acq = optimize_acqf(
             acqobj, 
-            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]),
+            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
             q=1 if not self.batch_acquisition else self.acquisition_q,
-            num_restarts=20,
+            num_restarts=10 if self.acq_function == 'KG' else 20, # KG is much more expensive
             raw_samples=200
         )
         end_time = time.time()
-        self.acqopt_time.append(end_time-start_time)
+        self.acqopt_time.append(preprocess_time + end_time-start_time)
         self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
-        self.acq_vec.append(max_acq.item())
+        self.acq_vec.append(-max_acq.item() if self.acq_function =='LCB' else max_acq.item())
