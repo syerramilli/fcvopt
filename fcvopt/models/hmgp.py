@@ -1,16 +1,16 @@
 import torch
 import gpytorch
 
-from gpytorch.kernels import ScaleKernel
+from gpytorch.kernels import ScaleKernel, MaternKernel
 from gpytorch.constraints import GreaterThan,Positive,Interval
-from gpytorch.priors import LogNormalPrior
+from gpytorch.priors import LogNormalPrior, GammaPrior
+from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.models.utils import gpt_posterior_settings
 from .gpregression import GPR
-from ..priors import LogUniformPrior
-from ..kernels import HammingKernel,ConstantKernel
+from ..kernels import HammingKernel
 
 # for extracting predictions
 from gpytorch.models.exact_prediction_strategies import prediction_strategy
-from gpytorch.utils.broadcasting import _mul_broadcast_shape
 
 from typing import List
 
@@ -22,30 +22,33 @@ class HGP(GPR):
         self,
         train_x:torch.Tensor,
         train_y:torch.Tensor,
-        correlation_kernel_class,
-        noise:float=1e-4
+        warp_input:bool=False
     ) -> None:
         super().__init__(
             train_x=train_x,train_y=train_y,
-            correlation_kernel_class=correlation_kernel_class,
-            noise=noise
+            warp_input=warp_input
         )
 
         # similar to f
         self.covar_module_delta = ScaleKernel(
-            base_kernel = correlation_kernel_class(
+            base_kernel = MaternKernel(
+                nu=2.5,
                 ard_num_dims=train_x[0].size(1),
                 lengthscale_constraint=Interval(0.01, 10.),
-                lengthscale_prior=LogUniformPrior(0.01,10.)
+                lengthscale_prior=GammaPrior(3/2, 3.9/6)
             ),
-            outputscale_prior=LogNormalPrior(-2.,2.),
+            outputscale_prior=LogNormalPrior(-2.,3.),
             outputscale_constraint=Positive(
-                initial_value=torch.tensor(0.1))
+                initial_value=torch.tensor(0.1)
+            )
         )
 
         self.corr_delta_fold = HammingKernel()
 
     def forward(self,x,fold_idx):
+        if self.warp_input:
+            x = self.input_warping(x)
+
         mean_x = self.mean_module(x)
         covar_f = self.covar_module(x)
         covar_delta = self.covar_module_delta(x).mul(self.corr_delta_fold(fold_idx))
@@ -54,11 +57,36 @@ class HGP(GPR):
     
     def forward_f(self,x):
         # Only with GP f
+        if self.warp_input:
+            x = self.input_warping(x)
+
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x,covar_x)
+
+    def posterior(
+        self, X:torch.Tensor,observation_noise:bool=False,
+        posterior_transform=None,**kwargs
+    ):
+        '''Returns the posterior of f'''
+        self.eval()  # make sure model is in eval mode
+        
+        # input transforms are applied at `posterior` in `eval` mode, and at
+        # `model.forward()` at the training time
+        X = self.transform_inputs(X)
+        with gpt_posterior_settings():
+            mvn = self._call_f(X)
+
+            if observation_noise:
+                mvn = self.likelihood(mvn, X)
+
+        posterior = GPyTorchPosterior(distribution=mvn)
+        if hasattr(self, "outcome_transform"):
+            posterior = self.outcome_transform.untransform_posterior(posterior)
+        
+        return posterior
     
-    def _predict(self,*args):
+    def _call_f(self,*args):
         # the prediction routine is different from GPR in that we are interested only
         # in the main GP `f` and not delta. 
         train_inputs = list(self.train_inputs) if self.train_inputs is not None else []
@@ -83,10 +111,10 @@ class HGP(GPR):
         train_input = train_inputs[0]
         # Make sure the batch shapes agree for training/test data
         if batch_shape != train_input.shape[:-2]:
-            batch_shape = _mul_broadcast_shape(batch_shape, train_input.shape[:-2])
+            batch_shape = torch.broadcast_shapes(batch_shape, train_input.shape[:-2])
             train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
         if batch_shape != inputs.shape[:-2]:
-            batch_shape = _mul_broadcast_shape(batch_shape, inputs.shape[:-2])
+            batch_shape = torch.broadcast_shapes(batch_shape, inputs.shape[:-2])
             train_input = train_input.expand(*batch_shape, *train_input.shape[-2:])
             inputs = inputs.expand(*batch_shape, *inputs.shape[-2:])
         full_inputs.append(torch.cat([train_input, inputs], dim=-2))
@@ -102,8 +130,7 @@ class HGP(GPR):
         test_shape = torch.Size([joint_shape[0] - self.prediction_strategy.train_shape[0], *tasks_shape])
 
         # Make the prediction
-        with gpytorch.settings._use_eval_tolerance():
-            predictive_mean, predictive_covar = self.prediction_strategy.exact_prediction(full_mean, full_covar)
+        predictive_mean, predictive_covar = self.prediction_strategy.exact_prediction(full_mean, full_covar)
 
         # Reshape predictive mean to match the appropriate event shape
         predictive_mean = predictive_mean.view(*batch_shape, *test_shape).contiguous()
@@ -112,7 +139,7 @@ class HGP(GPR):
     def _fold_selection_metric(self,x,fold_idxs):
         # This method is for internal use only!.
         #TODO: raise error if self.prediction_strategy is None
-        #TODO: raise error if not in eval model
+        #TODO: raise error if not in eval mode
 
         # determine if batched or not
         ndim = self.train_targets.ndim

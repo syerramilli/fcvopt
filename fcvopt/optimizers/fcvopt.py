@@ -4,8 +4,6 @@ import time
 import torch
 from .bayes_opt import BayesOpt
 from ..models import HGP
-from ..acquisition import LowerConfidenceBoundMCMC
-from .acqfunoptimizer import AcqFunOptimizer
 
 from ..configspace import ConfigurationSpace
 from ..util.samplers import stratified_sample
@@ -15,23 +13,22 @@ class FCVOpt(BayesOpt):
     def __init__(
         self,
         obj:Callable,
-        n_folds:int,
-        n_repeats:int,
         config:ConfigurationSpace,
-        estimation_method:str='MAP',
+        n_folds:int,
+        n_repeats:int=1,
         fold_selection_criterion:str='variance_reduction',
         fold_initialization:str='random',
-        correlation_kernel_class:Optional[str]=None,
-        kappa:float=2.,
-        verbose:int=0.,
+        minimize:bool=True,
+        acq_function:str='LCB',
         **kwargs
     ):
+        if acq_function == 'EI':
+            raise RuntimeError('Expected improvment not implemented for FCVOPT')
+
         super().__init__(
-            obj=obj,config=config,
-            estimation_method=estimation_method,
-            correlation_kernel_class=correlation_kernel_class,
-            kappa=kappa,verbose=verbose,**kwargs
+            obj=obj,config=config,minimize=minimize,acq_function=acq_function,**kwargs
         )
+        
         # fold indices and candidates not present in BayesOpt
         # TODO: add checks for the validity of fold_selection criterion
         self.fold_selection_criterion = fold_selection_criterion
@@ -40,6 +37,18 @@ class FCVOpt(BayesOpt):
         self.n_repeats = n_repeats
         self.train_folds = None
         self.folds_cand = []
+
+    @property
+    def stats_keys(self) -> List:
+        return [
+            'f_inc_obs','f_inc_est','acq_vec',
+            'confs_inc','confs_cand','folds_cand',
+            'fit_time','acqopt_time','obj_eval_time',
+        ]
+
+    @property
+    def data_keys(self)->List:
+        return ['train_x','train_y','train_folds']
 
     def _initialize(self,n_init:Optional[int]=None):
         if self.train_confs is None:
@@ -66,26 +75,49 @@ class FCVOpt(BayesOpt):
         else:
             # algorithm has been run previously
             # evaluate the next candidate 
-            next_conf = self.confs_cand[-1]
-            next_fold = [self.folds_cand[-1]]
-            next_x,next_y,eval_time = self._evaluate(next_conf,fold_idxs=next_fold)
-            self.train_confs.append(next_conf)
-            self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
-            self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
-            self.train_folds = torch.cat([self.train_folds,torch.tensor(next_fold).to(self.train_folds).reshape(1,-1)])
-            self.obj_eval_time.append(eval_time)
+            next_confs_list = self.confs_cand[-1]
+            next_folds_list = self.folds_cand[-1]
+            
+            evaluations = self._evaluate_confs(next_confs_list, next_folds_list)
+            for i,(next_x,next_y,eval_time) in enumerate(evaluations):
+                self.train_confs.append(next_confs_list[i])
+                self.train_x = torch.cat([
+                    self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)]
+                )
+                self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
+            
+                self.train_folds = torch.cat([
+                    self.train_folds,torch.tensor(next_folds_list[i]).to(self.train_folds).reshape(1,-1)]
+                )
+
+                self.obj_eval_time.append(eval_time)
     
+    def _evaluate_confs(self,confs_list,folds_list,**kwargs):
+        if self.n_jobs > 1 and len(confs_list) > 1:
+            # enable parallel evaulations
+            evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
+                joblib.delayed(self._evaluate)(conf,fold_idxs=[fold_idx],**kwargs) \
+                    for conf,fold_idx in zip(confs_list,folds_list)
+            )
+        else:
+            # can add logging here
+            evaluations = [None]*len(confs_list)
+            for i in range(len(confs_list)):
+                evaluations[i] = self._evaluate(confs_list[i],fold_idxs=[folds_list[i]],**kwargs)
+        
+        return evaluations
+
     def _construct_model(self):
         return HGP(
             train_x = (self.train_x,self.train_folds),
-            train_y = self.train_y,
-            correlation_kernel_class=self.correlation_kernel_class,
-            noise=1e-4
+            train_y = self.sign_mul*self.train_y
         ).double()
     
     def _acquisition(self) -> None:
         # acquisition for x is the same as BayesOpt
         super()._acquisition()
+
+        num_candidates = 1 if not self.batch_acquisition else self.acquisition_q
         
         total_num_folds = self.n_folds
         if self.n_repeats > 1 and self.train_folds.flatten().unique().shape[0] < self.n_folds:
@@ -97,9 +129,13 @@ class FCVOpt(BayesOpt):
         # shuffling to prevent ties among folds
         np.random.shuffle(fold_idxs)
 
-        # fold acquisition
         if self.fold_selection_criterion == 'random':
-            self.folds_cand.append(np.random.choice(fold_idxs))
+            self.folds_cand.append(
+                np.random.choice(
+                    fold_idxs,size=num_candidates,replace=True
+                ).tolist()
+            )
+
         elif self.fold_selection_criterion == 'variance_reduction':
             next_x = torch.tensor(
                 self.confs_cand[-1].get_array()
