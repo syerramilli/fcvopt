@@ -126,8 +126,6 @@ class FCVOpt(BayesOpt):
             total_num_folds = self.n_folds*self.n_repeats
 
         fold_idxs = np.arange(total_num_folds)
-        # shuffling to prevent ties among folds
-        np.random.shuffle(fold_idxs)
 
         if self.fold_selection_criterion == 'random':
             self.folds_cand.append(
@@ -137,11 +135,17 @@ class FCVOpt(BayesOpt):
             )
 
         elif self.fold_selection_criterion == 'variance_reduction':
-            next_x = torch.tensor(
-                self.confs_cand[-1].get_array()
-            ).to(self.train_x).reshape(1,-1)
+            folds = []
+            next_xs = np.row_stack([
+                conf.get_array() for conf in self.confs_cand[-1]
+            ])
             
-            fold_metrics = self.model._fold_selection_metric(next_x,fold_idxs)
-            self.folds_cand.append(
-                fold_idxs[np.argmin(fold_metrics)]
-            )
+            for next_x in next_xs:
+                # shuffling to prevent ties among folds
+                np.random.shuffle(fold_idxs)
+                fold_metrics = self.model._fold_selection_metric(
+                    torch.from_numpy(next_x).view(1,-1),fold_idxs
+                )
+                folds.append(fold_idxs[np.argmin(fold_metrics)])
+
+            self.folds_cand.append(folds)
