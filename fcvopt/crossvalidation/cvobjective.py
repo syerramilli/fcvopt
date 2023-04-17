@@ -22,7 +22,8 @@ class CVObjective:
         self.y = y
         self.task = task
         self.loss_metric = loss_metric
-        if stratified and 'classification' in self.task:
+        self.stratified = stratified
+        if self.stratified and 'classification' in self.task:
             self.cv = RepeatedStratifiedKFold(n_splits=n_splits,n_repeats=n_repeats)
         else:
             self.cv = RepeatedKFold(n_splits=n_splits,n_repeats=n_repeats)
