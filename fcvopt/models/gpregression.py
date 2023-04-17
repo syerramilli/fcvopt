@@ -23,7 +23,8 @@ class GPR(ExactGP,GPyTorchModel,FantasizeMixin):
         self,
         train_x:torch.Tensor,
         train_y:torch.Tensor,
-        warp_input:bool=False
+        warp_input:bool=False,
+        covar_kernel= None
     ) -> None:
     
         # initializing likelihood
@@ -47,22 +48,25 @@ class GPR(ExactGP,GPyTorchModel,FantasizeMixin):
 
         # Modules
         self.mean_module = gpytorch.means.ConstantMean()
-        self.covar_module = kernels.ScaleKernel(
-            base_kernel = kernels.MaternKernel(
-                ard_num_dims=self.train_inputs[0].size(1),
-                lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
-                nu=2.5
-            ),
-            outputscale_constraint=Positive()
-        )  
+
+        if covar_kernel is not None:
+            self.covar_module = covar_kernel
+
+        else:
+            self.covar_module = kernels.ScaleKernel(
+                base_kernel = kernels.MaternKernel(
+                    ard_num_dims=self.train_inputs[0].size(1),
+                    lengthscale_constraint=Positive(transform=torch.exp,inv_transform=torch.log),
+                    lengthscale_prior=GammaPrior(3/2, 3.9/6),
+                    nu=2.5
+                ),
+                outputscale_constraint=Positive(),
+                outputscale_prior=LogNormalPrior(0., 1.)
+            )  
 
         # register priors
         self.likelihood.register_prior('noise_prior',HalfCauchyPrior(0.1,transform=exp_with_shift),'raw_noise')
         self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
-        self.covar_module.register_prior('outputscale_prior',LogNormalPrior(0.,1.),'outputscale')
-        self.covar_module.base_kernel.register_prior(
-            'lengthscale_prior',GammaPrior(3/2, 3.9/6),'lengthscale'
-        )
     
     def forward(self,x):
         mean_x = self.mean_module(x)

@@ -171,3 +171,34 @@ class HGP(GPR):
             )
         
         return out
+
+    def condition_on_observations(self, X, Y,**kwargs):
+        Yvar = kwargs.get('noise',None)
+
+        if hasattr(self, "outcome_transform"):
+            # pass the transformed data to get_fantasy_model below
+            Y,Yvar = self.outcome_transform(Y,Yvar)
+
+        if Y.size(-1)==1:
+            Y = Y.squeeze(-1)
+        
+        # Create a new GP model based on the CV loss f
+        new_model = GPR(
+            train_x = self.train_inputs[0],
+            train_y = self.outcome_transform.untransform(self.train_targets)[0].flatten(),
+            covar_kernel= self.covar_module
+        ).double()
+
+        _ = new_model.initialize(**{
+            'likelihood.noise_covar.raw_noise':self.likelihood.noise_covar.raw_noise.detach().clone(),
+            'mean_module.raw_constant':self.mean_module.raw_constant.detach().clone()
+        })
+
+        _ = new_model.eval()
+        # copy the prediction cache of the original model to this new model
+        new_model.prediction_strategy = self.prediction_strategy
+
+        # get_fantasy_model will properly copy any existing outcome transforms
+        # (since it deepcopies the original model)
+        return new_model.get_fantasy_model(inputs=X,targets=Y)
+        
