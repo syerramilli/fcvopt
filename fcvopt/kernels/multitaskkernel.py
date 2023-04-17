@@ -3,7 +3,7 @@ import math
 from gpytorch.kernels import Kernel
 from gpytorch.constraints import Positive,GreaterThan
 from gpytorch.lazy import PsdSumLazyTensor,RootLazyTensor,InterpolatedLazyTensor
-from gpytorch.utils.broadcasting import _mul_broadcast_shape
+#from gpytorch.utils.broadcasting import _mul_broadcast_shape
 
 class MultiTaskKernel(Kernel):
     '''
@@ -62,7 +62,7 @@ class MultiTaskKernel(Kernel):
 
     def forward(self,i1,i2,**params):
         covar_matrix = self._eval_covar_matrix()
-        batch_shape = _mul_broadcast_shape(i1.shape[:-2], self.batch_shape)
+        batch_shape = torch.broadcast_shapes(i1.shape[:-2], self.batch_shape)
         index_shape = batch_shape + i1.shape[-2:]
 
         res = InterpolatedLazyTensor(
