@@ -128,7 +128,7 @@ class BayesOpt:
     def save_to_file(self,path):
         #  optimization statistics
         stats = {
-            key:getattr(self,key) for key in self.stat_keys
+            key:getattr(self,key) for key in self.stats_keys
         }
         joblib.dump(stats,os.path.join(path,'stats.pkl'))
         # Observations
