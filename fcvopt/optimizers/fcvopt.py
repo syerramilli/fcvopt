@@ -70,7 +70,7 @@ class FCVOpt(BayesOpt):
                 self.train_y.append(y)
                 self.obj_eval_time.append(eval_time)
             
-            self.train_x = torch.tensor(self.train_x).double()
+            self.train_x = torch.from_numpy(np.row_stack(self.train_x)).double()
             self.train_y = torch.tensor(self.train_y).double()
         else:
             # algorithm has been run previously
