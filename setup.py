@@ -12,5 +12,5 @@ setup(name='fcvopt',
       author_email='surajyerramilli@gmail.com',
       license='MIT',
       packages=find_packages(),
-      install_requires=['numpy','scipy','emcee','scikit-learn'],
+      install_requires=['numpy','scipy','torch','gpytorch','botorch','scikit-learn'],
       zip_safe=False)

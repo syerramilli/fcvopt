@@ -1,6 +1,6 @@
-torch == 1.10.0
-gpytorch == 1.6.0
-numpy >= 1.16.4
-scipy >= 1.4.1
+torch >= 1.13
+gpytorch >= 1.9
+botorch >= 0.8
+numpy
+scipy
 scikit-learn
-pyro-ppl == 1.8.0
