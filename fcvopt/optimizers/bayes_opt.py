@@ -251,7 +251,7 @@ class BayesOpt:
                 raw_samples=200,
             )
             preprocess_time = time.time()-start_time
-            acqobj = qKnowledgeGradient(self.model,current_value=max_pmean)
+            acqobj = qKnowledgeGradient(self.model,current_value=max_pmean,num_fantasies=16)
 
         start_time = time.time()
         new_x, max_acq = optimize_acqf(
