@@ -237,9 +237,9 @@ class BayesOpt:
         elif self.acq_function == 'LCB':
             if self.batch_acquisition:
                 sampler = SobolQMCNormalSampler(512)
-                acqobj = qUpperConfidenceBound(self.model, torch.tensor(2.))
+                acqobj = qUpperConfidenceBound(self.model, torch.tensor(4.))
             else:
-                acqobj = UpperConfidenceBound(self.model, torch.tensor(2.))
+                acqobj = UpperConfidenceBound(self.model, torch.tensor(4.))
         elif self.acq_function == 'KG':
             # first must find the current best posterior mean 
             start_time = time.time()
