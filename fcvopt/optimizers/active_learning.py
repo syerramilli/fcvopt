@@ -9,10 +9,9 @@ import joblib
 from ..models import GPR
 from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
+from ..acquisition.active import ActiveLearningCohn
 
-from botorch.acquisition import qNegIntegratedPosteriorVariance
-from botorch.optim import optimize_acqf
-from botorch.sampling import SobolQMCNormalSampler
+from .acqfunoptimizer import AcqFunOptimizer
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -24,7 +23,6 @@ class ActiveLearning:
         obj:Callable,
         config:ConfigurationSpace,
         X_ref:torch.Tensor,
-        acquisition_q:int=1,
         n_jobs:int=1,
         verbose:int=1,
         save_iter:Optional[int]=None,
@@ -33,7 +31,6 @@ class ActiveLearning:
         self.obj = obj
         self.config = config
         self.X_ref = X_ref
-        self.acquisition_q = acquisition_q
         self.n_jobs = n_jobs
         self.verbose=verbose
         self.save_iter = save_iter
@@ -179,17 +176,17 @@ class ActiveLearning:
         ).double()
     
     def _acquisition(self) -> None:
-        acqobj = qNegIntegratedPosteriorVariance(self.model, self.X_ref)
+        acqobj = ActiveLearningCohn(self.model, self.X_ref)
         
-        start_time = time.time()
-        new_x, max_acq = optimize_acqf(
-            acqobj, 
-            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
-            q=self.acquisition_q,
-            num_restarts=20,
-            raw_samples=200
+        acqopt = AcqFunOptimizer(
+            acq_fun=acqobj,
+            ndim = len(self.config.quant_index),
+            num_starts = 10*len(self.config.quant_index),
+            x0=None,
+            num_jobs=1,
         )
-        end_time = time.time()
-        self.acqopt_time.append(end_time-start_time)
-        self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
-        self.acq_vec.append(-max_acq.item())
+        start_time = time.time()
+        next_x = acqopt.run()
+        self.acqopt_time.append(time.time()-start_time)
+        self.confs_cand.append(self.config.get_conf_from_array(next_x))
+        self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
