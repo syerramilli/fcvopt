@@ -6,13 +6,13 @@ import gpytorch
 import warnings
 import joblib
 
-from .. import kernels
 from ..models import GPR
-from ..models.emcee_utils import EnsembleMCMC
-from ..models.fit_model import fit_model_unconstrained
-from ..acquisition.active import ActiveLearningCohn
-from .acqfunoptimizer import AcqFunOptimizer
+from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
+
+from botorch.acquisition import qNegIntegratedPosteriorVariance
+from botorch.optim import optimize_acqf
+from botorch.sampling import SobolQMCNormalSampler
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -24,27 +24,18 @@ class ActiveLearning:
         obj:Callable,
         config:ConfigurationSpace,
         X_ref:torch.Tensor,
-        deterministic:bool=True,
-        estimation_method:str='MAP',
-        correlation_kernel_class:Optional[str]=None,
-        kappa:float=2.,
-        verbose:int=0.,
+        acquisition_q:int=1,
+        n_jobs:int=1,
+        verbose:int=1,
         save_iter:Optional[int]=None,
-        save_dir:Optional[int]=None
+        save_dir:Optional[int]=None,
     ):
         self.obj = obj
         self.config = config
         self.X_ref = X_ref
-        self.deterministic = deterministic
-        self.estimation_method = estimation_method
-        if correlation_kernel_class is None:
-            self.correlation_kernel_class = kernels.Matern52Kernel
-        else:
-            self.correlation_kernel_class = getattr(kernels,correlation_kernel_class)
-        
-        self.kappa=kappa
+        self.acquisition_q = acquisition_q
+        self.n_jobs = n_jobs
         self.verbose=verbose
-        # TODO: work on this
         self.save_iter = save_iter
         self.save_dir = save_dir
 
@@ -73,8 +64,9 @@ class ActiveLearning:
             # acquisition find next candidate
             self._acquisition()
 
-            if i % self.save_iter == 0:
-                self.save_to_file(self.save_dir)
+            if self.save_iter and self.save_dir:
+                if i % self.save_iter == 0:
+                    self.save_to_file(self.save_dir)
 
             # update verbose statements
             if self.verbose >= 2:
@@ -118,8 +110,8 @@ class ActiveLearning:
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = self.config.latinhypercube_sample(n_init)
 
-            for conf in self.train_confs:
-                x,y,eval_time = self._evaluate(conf)
+            evaluations = self._evaluate_confs(self.train_confs)
+            for x,y,eval_time in evaluations:
                 self.train_x.append(x)
                 self.train_y.append(y)
                 self.obj_eval_time.append(eval_time)
@@ -129,84 +121,75 @@ class ActiveLearning:
         else:
             # algorithm has been run previously
             # evaluate the next candidate 
-            next_conf = self.confs_cand[-1]
-            next_x,next_y,eval_time = self._evaluate(next_conf)
-            self.train_confs.append(next_conf)
-            self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
-            self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
-            self.obj_eval_time.append(eval_time)
+            next_confs_list = self.confs_cand[-1]
+            evaluations = self._evaluate_confs(next_confs_list)
+            
+            for next_conf,(next_x,next_y,eval_time) in zip(next_confs_list,evaluations):
+                self.train_confs.append(next_conf)
+                self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
+                self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
+                self.obj_eval_time.append(eval_time)
     
     def _evaluate(self,conf,**kwargs):
         start_time = time.time()
         y = self.obj(conf.get_dictionary(),**kwargs)
         eval_time = time.time()-start_time
         return conf.get_array(),y,eval_time
+
+    def _evaluate_confs(self,confs_list,**kwargs):
+        if self.n_jobs > 1 and len(confs_list) > 1:
+            # enable parallel evaulations
+            evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
+                joblib.delayed(self._evaluate)(conf,**kwargs) for conf in confs_list
+            )
+        else:
+            # can add logging here
+            evaluations = [None]*len(confs_list)
+            for i,conf in enumerate(confs_list):
+                evaluations[i] = self._evaluate(conf,**kwargs)
+        
+        return evaluations
     
     def _fit_model(self) -> None:
         # construct model
         self.model = self._construct_model()
 
         start_time = time.time()
-        if self.estimation_method == 'MCMC':
-            num_steps = 200 if self.initial_params is not None else 1000
-            burnin = 200 if self.initial_params is not None else 1000
-            mcmc = EnsembleMCMC(self.model,burnin,num_steps,p0=self.initial_params)
-            self.initial_params = mcmc.run(progress=True)
+        start_time = time.time()
+        if self.initial_params is not None:
+            self.model.initialize(**self.initial_params)
+
+        _ = fit_model_scipy(model = self.model,num_restarts = 5)
             
-        elif self.estimation_method == 'MAP':
-            if self.initial_params is not None:
-                self.model.initialize(**self.initial_params)
+        self.fit_time.append(time.time()-start_time)
 
-            _ = fit_model_unconstrained(
-                model = self.model,
-                num_restarts = 9
-            )
-
-            self.initial_params = OrderedDict()
-            # disable model gradients
-            for name,parameter in self.model.named_parameters():
-                parameter.requires_grad_(False)
-                self.initial_params[name] = parameter
+        self.initial_params = OrderedDict()
+        for name,parameter in self.model.named_parameters():
+                self.initial_params[name] = parameter.detach().clone()
+            
         # generate model cache
         self.model.eval()
         with torch.no_grad():
             _ = self.model(self.train_x[[0],:])
-
-        self.fit_time.append(time.time()-start_time)
     
     def _construct_model(self):
-        noise = 1e-4 if self.deterministic else 1e-2
         return GPR(
             train_x = self.train_x,
             train_y = self.train_y,
-            correlation_kernel_class=self.correlation_kernel_class,
-            noise=noise,
-            fix_noise=self.deterministic,
-            estimation_method=self.estimation_method
         ).double()
     
-    def _calculate_prior_sigma(self) -> float:
-        var_vec = self.model.covar_module.outputscale*(self.model.y_std**2)
-        
-        if self.estimation_method  == 'MAP':
-            return var_vec.sqrt().item()
-        
-        # else MCMC
-        mean_vec = self.model.mean_module.constant*self.model.y_std + self.model.y_mean
-        return torch.sqrt(mean_vec.var()+var_vec.mean()).item()
-    
     def _acquisition(self) -> None:
-        acqobj = ActiveLearningCohn(self.model,self.X_ref)
+        acqobj = qNegIntegratedPosteriorVariance(self.model, self.X_ref)
         
-        acqopt = AcqFunOptimizer(
-            acq_fun=acqobj,
-            ndim = len(self.config.quant_index),
-            num_starts = 10*len(self.config.quant_index),
-            x0=None,
-            num_jobs=1 # TODO: add support for parallelization
-        )
         start_time = time.time()
-        next_x = acqopt.run()
-        self.acqopt_time.append(time.time()-start_time)
-        self.confs_cand.append(self.config.get_conf_from_array(next_x))
-        self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
+        new_x, max_acq = optimize_acqf(
+            acqobj, 
+            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
+            q=self.acquisition_q,
+            num_restarts=20,
+            raw_samples=200
+        )
+        end_time = time.time()
+        self.acqopt_time.append(end_time-start_time)
+        self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
+        self.acq_vec.append(-max_acq.item())
