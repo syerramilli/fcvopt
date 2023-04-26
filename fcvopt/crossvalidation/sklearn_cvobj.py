@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import train_test_split
@@ -39,7 +40,11 @@ class SklearnCVObj(CVObjective):
     def _fit_and_test(self, params, train_index, test_index):
         model = self.construct_model(params)
 
-        X_train = self.X[train_index,...];X_test = self.X[test_index,...]
+        # fold train and test sets
+        if isinstance(self.X, pd.DataFrame):
+            X_train = self.X.iloc[train_index,:];X_test = self.X.iloc[test_index,:]
+        else:
+            X_train = self.X[train_index,...];X_test = self.X[test_index,...]
 
         if self.input_preprocessor is not None:
             input_preprocessor = clone(self.input_preprocessor).fit(self.X[train_index,...])
@@ -66,7 +71,10 @@ class XGBoostCVObjEarlyStopping(SklearnCVObj):
         model = self.construct_model(params).set_params(**{'early_stopping_rounds':self.early_stopping_rounds})
         scorer = make_scorer(self.loss_metric,needs_proba=self.needs_proba)
         # fold train and test sets
-        X_train = self.X[train_index,...];X_test = self.X[test_index,...]
+        if isinstance(self.X, pd.DataFrame):
+            X_train = self.X.iloc[train_index,:];X_test = self.X.iloc[test_index,:]
+        else:
+            X_train = self.X[train_index,...];X_test = self.X[test_index,...]
 
         if self.input_preprocessor is not None:
             input_preprocessor = clone(self.input_preprocessor).fit(self.X[train_index,...])
