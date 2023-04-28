@@ -38,12 +38,24 @@ class MLP(nn.Module):
         for hsize,droprate in zip(h_sizes,dropouts):
             hidden_layers.append(nn.Linear(input_dim,hsize))
             hidden_layers.append(getattr(nn,activation)())
-            hidden_layers.append(nn.Dropout(droprate))
+            hidden_layers.append(nn.AlphaDropout(droprate) if activation == 'SELU' else nn.Dropout(droprate))
             input_dim = hsize
         
         self.hidden_layers = nn.Sequential(*hidden_layers)  
         self.output = nn.Linear(h_sizes[-1],output_dim)
-    
+
+        if activation == 'SELU':
+            # Ensure correct initialization
+            def init_weights(m):
+                if isinstance(m, nn.Linear):
+                    nn.init.kaiming_normal_(
+                        m.weight.data, mode='fan_in', nonlinearity='linear'
+                    )
+                    nn.init.zeros_(m.bias.data)
+
+            self.apply(init_weights)
+
+
     def forward(self,x):
         if self.categorical_index is not None:
             embeddings = []
