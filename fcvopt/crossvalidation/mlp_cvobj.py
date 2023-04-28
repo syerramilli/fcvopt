@@ -2,7 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 from skorch import NeuralNetRegressor,NeuralNetClassifier,NeuralNetBinaryClassifier
-from skorch.callbacks import GradientNormClipping
+from skorch.callbacks import GradientNormClipping, EarlyStopping, EpochScoring
+from skorch.dataset import ValidSplit
+from sklearn.metrics import make_scorer
 from typing import List, Tuple, Optional, Dict
 
 from ..crossvalidation.sklearn_cvobj import SklearnCVObj
@@ -59,7 +61,7 @@ class MLPCVObj(SklearnCVObj):
         self,
         num_hidden:int=1,
         activation:str='ReLU',
-        max_epochs:int=50,
+        max_epochs:int=100,
         optimizer:int='SGD',
         numerical_index=None,
         categorical_index=None,
@@ -92,19 +94,19 @@ class MLPCVObj(SklearnCVObj):
             params['dropout%d'%i] for i in range(self.num_hidden) 
         ]
         
-        param_groups = [
-            ('hidden*.%d.weight'%i,{'weight_decay':params['lam%d'%i]}) \
-            for i in range(self.num_hidden)
-        ]
+        # param_groups = [
+        #     ('hidden*.%d.weight'%i,{'weight_decay':params['lam_weights']}) \
+        #     for i in range(self.num_hidden)
+        # ]
         
-        param_groups.append(
-            ('output.weight',{'weight_decay':params['lam_output']}),
-        )
+        # param_groups.append(
+        #     ('output.weight',{'weight_decay':params['lam_weights']}),
+        # )
 
-        if self.categorical_index is not None:
-            param_groups.append(
-                ('embedding*.weight',{'weight_decay':params['lam_embedding']})
-            )
+        # if self.categorical_index is not None:
+        #     param_groups.append(
+        #         ('embedding*.weight',{'weight_decay':params['lam_embedding']})
+        #     )
         
         if self.task == 'regression':
             skorch_class = NeuralNetRegressor
@@ -126,15 +128,23 @@ class MLPCVObj(SklearnCVObj):
             module__numerical_index=self.numerical_index,
             module__categorical_index=self.categorical_index,
             module__num_levels_per_var=self.num_levels_per_var,
-            callbacks=[('gradient_clipping',GradientNormClipping(
-                gradient_clip_value=3., gradient_clip_norm_type='inf'
-            ))],
+            callbacks=[
+                GradientNormClipping(
+                    gradient_clip_value=3., gradient_clip_norm_type='inf'
+                ),
+                EpochScoring(
+                    scoring = make_scorer(self.loss_metric,needs_proba=self.needs_proba),
+                    lower_is_better=True,
+                    name='valid_metric'
+                ),
+                EarlyStopping(patience=10, monitor='valid_metric',load_best=True),
+            ],
             optimizer=getattr(torch.optim,self.optimizer),
             optimizer__lr = params['lr'],
-            optimizer__param_groups = param_groups,
-            max_epochs=params['max_epochs'],
+            optimizer__weight_decay = params['weight_decay'],
+            max_epochs=self.max_epochs,
             batch_size=params['batch_size'],
-            train_split=None,
+            train_split=ValidSplit(10,stratified=True if 'classification' in self.task else False),
             verbose=0
         )
 
