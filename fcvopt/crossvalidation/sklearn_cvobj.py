@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.metrics import make_scorer
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from joblib import Parallel,delayed
 from typing import Callable,List,Optional,Dict,Tuple
@@ -51,12 +52,18 @@ class SklearnCVObj(CVObjective):
             X_train = input_preprocessor.transform(X_train)
             X_test = input_preprocessor.transform(X_test)
 
+        y_train = self.y[train_index,...]; y_test = self.y[test_index,...]
+        if self.scale_output and self.task=='regression':
+            y_std = np.std(self.y[train_index,...])
+            y_mean = np.mean(self.y[train_index,...])
+            y_train = (y_train-y_mean)/y_std
+            y_test = (y_test-y_mean)/y_std
+
         scorer = make_scorer(self.loss_metric,needs_proba=self.needs_proba)
-
         # fit model
-        model.fit(X_train,self.y[train_index,...])
+        model.fit(X_train,y_train)
 
-        return scorer(model,X_test,self.y[test_index,...])
+        return scorer(model,X_test,y_test)
 
 
 class XGBoostCVObjEarlyStopping(SklearnCVObj):
@@ -68,7 +75,17 @@ class XGBoostCVObjEarlyStopping(SklearnCVObj):
         self.validation_split = validation_split
 
     def _fit_and_test(self, params, train_index, test_index):
-        model = self.construct_model(params).set_params(**{'early_stopping_rounds':self.early_stopping_rounds})
+        model = self.construct_model(params).set_params(
+            **{'early_stopping_rounds':self.early_stopping_rounds}
+        )
+
+        y_train = self.y[train_index,...]; y_test = self.y[test_index,...]
+        if self.scale_output and self.task=='regression':
+            y_std = np.std(self.y[train_index,...])
+            y_mean = np.mean(self.y[train_index,...])
+            y_train = (y_train-y_mean)/y_std
+            y_test = (y_test-y_mean)/y_std
+
         scorer = make_scorer(self.loss_metric,needs_proba=self.needs_proba)
         # fold train and test sets
         if isinstance(self.X, pd.DataFrame):
@@ -81,14 +98,17 @@ class XGBoostCVObjEarlyStopping(SklearnCVObj):
             X_train = input_preprocessor.transform(X_train)
             X_test = input_preprocessor.transform(X_test)
 
+        if self.task == 'regression':
+            _  = model.set_params(**{'base_score':y_train.mean()})
+
         # for early stopping split the train set further into training and validation
         # the performance on the validation split will be used as early stopping criterion
         X_train, X_val, y_train, y_val = train_test_split(
-            X_train,self.y[train_index,...],test_size=self.validation_split,
-            stratify=self.y[train_index,...] if self.stratified and 'classification' in self.task else None
+            X_train,y_train,test_size=self.validation_split,
+            stratify=y_train if self.stratified and 'classification' in self.task else None
         )
 
         # fit model
         model.fit(X_train,y_train,eval_set=[(X_val,y_val)],verbose=0)
 
-        return scorer(model,X_test,self.y[test_index,...])
+        return scorer(model,X_test,y_test)
