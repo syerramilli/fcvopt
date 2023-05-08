@@ -87,8 +87,11 @@ class MLPCVObj(SklearnCVObj):
         self.optimizer=optimizer
 
         self.num_targets = 1 # for regression and binary-classification
-        if self.task=='classification':
-            self.num_targets = np.unique(self.y).size
+        if 'classification' in self.task:
+            self.y = self.y.astype(np.float32)
+            if self.task =='classification':
+                self.num_targets = np.unique(self.y).size
+            
 
         self.categorical_index = categorical_index
         self.num_levels_per_var = num_levels_per_var
