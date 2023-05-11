@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from skorch import NeuralNetRegressor,NeuralNetClassifier,NeuralNetBinaryClassifier
-from skorch.callbacks import GradientNormClipping, EarlyStopping, EpochScoring
+from skorch.callbacks import GradientNormClipping, EarlyStopping, EpochScoring, LRScheduler
 from skorch.dataset import ValidSplit
 from sklearn.metrics import make_scorer
 from typing import List, Tuple, Optional, Dict
@@ -144,15 +144,19 @@ class MLPCVObj(SklearnCVObj):
             module__categorical_index=self.categorical_index,
             module__num_levels_per_var=self.num_levels_per_var,
             callbacks=[
-                GradientNormClipping(
-                    gradient_clip_value=3., gradient_clip_norm_type='inf'
-                ),
                 EpochScoring(
                     scoring = make_scorer(self.loss_metric,needs_proba=self.needs_proba),
                     lower_is_better=True,
                     name='valid_metric'
                 ),
-                EarlyStopping(patience=10, monitor='valid_metric',load_best=True),
+                EarlyStopping(patience=15, monitor='valid_metric',load_best=True),
+                LRScheduler(
+                    policy='ReduceLROnPlateau',monitor='valid_metric',
+                    factor=0.1,
+                    mode='min',
+                    patience=5,
+                    verbose=False
+                )
             ],
             optimizer=getattr(torch.optim,self.optimizer),
             optimizer__lr = params['lr'],
