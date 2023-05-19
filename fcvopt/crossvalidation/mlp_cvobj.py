@@ -155,7 +155,8 @@ class MLPCVObj(SklearnCVObj):
                     factor=0.1,
                     mode='min',
                     patience=5,
-                    verbose=False
+                    verbose=False,
+                    min_lr=1e-5
                 )
             ],
             optimizer=getattr(torch.optim,self.optimizer),
