@@ -196,12 +196,11 @@ class BayesOpt:
             self.model.initialize(**self.initial_params)
 
         _ = fit_model_scipy(model = self.model,num_restarts = 5)
-
-        self.initial_params = OrderedDict()
             
         self.fit_time.append(time.time()-start_time)
 
         # disable model gradients
+        self.initial_params = OrderedDict()
         for name,parameter in self.model.named_parameters():
             parameter.requires_grad_(False)
             self.initial_params[name] = parameter
