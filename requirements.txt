@@ -1,6 +1,7 @@
 torch >= 1.13
 gpytorch >= 1.9
 botorch >= 0.8
-numpy
-scipy
-scikit-learn
+numpy>=1.2
+scipy>=1.10
+scikit-learn>=1.2
+skorch>=0.13
