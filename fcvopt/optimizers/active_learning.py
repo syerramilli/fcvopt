@@ -180,13 +180,13 @@ class ActiveLearning:
         
         acqopt = AcqFunOptimizer(
             acq_fun=acqobj,
-            ndim = len(self.config.quant_index),
-            num_starts = 10*len(self.config.quant_index),
+            ndim = self.config.ndim,
+            num_starts = 10*self.config.ndim,
             x0=None,
             num_jobs=1,
         )
         start_time = time.time()
         next_x = acqopt.run()
         self.acqopt_time.append(time.time()-start_time)
-        self.confs_cand.append(self.config.get_conf_from_array(next_x))
+        self.confs_cand.append([self.config.get_conf_from_array(next_x)])
         self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)

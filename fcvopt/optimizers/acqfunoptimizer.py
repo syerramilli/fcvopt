@@ -7,6 +7,8 @@ from ..optimizers.multistart import MultiStartOptimizer
 from ..acquisition.acquisition import AcquisitionFunction
 from ..configspace import ConfigurationSpace
 
+#from ..util.samplers import lh_sampler
+
 class AcqFunOptimizer(MultiStartOptimizer):
     def __init__(
         self,
