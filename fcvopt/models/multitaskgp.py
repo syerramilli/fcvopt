@@ -1,15 +1,15 @@
 import torch
 import gpytorch
 
-from gpytorch.models import ExactGP
 from gpytorch.constraints import GreaterThan,Positive,Interval
-from gpytorch.priors import NormalPrior,LogNormalPrior
-from ..priors import HalfHorseshoePrior,LogUniformPrior
+from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.models.utils import gpt_posterior_settings
+from .gpregression import GPR
 from ..kernels import MultiTaskKernel
 
 from typing import List
 
-class MultitaskGPModel(ExactGP):
+class MultitaskGPModel(GPR):
     '''
     Multi-task GP model used by Swersky et.al.
     '''
@@ -18,45 +18,15 @@ class MultitaskGPModel(ExactGP):
         train_x:torch.Tensor,
         train_y:torch.Tensor,
         num_tasks:int,
-        correlation_kernel_class,
-        noise:float=1e-4
+        warp_input:bool=False
     ) -> None:
 
-        # initializing likelihood
-        noise_constraint=GreaterThan(1e-8)
-        likelihood = gpytorch.likelihoods.GaussianLikelihood(noise_constraint=noise_constraint)
-
-        # standardizing the response variable
-        y_mean,y_std = train_y.mean(),train_y.std()
-        train_y_sc = (train_y-y_mean)/y_std
-
-        # initializing ExactGP
-        super().__init__(train_x,train_y_sc,likelihood)
-
-        # registering mean and std of the raw response
-        self.register_buffer('y_mean',y_mean)
-        self.register_buffer('y_std',y_std)
-        self.register_buffer('num_tasks',torch.tensor(num_tasks))
-
-        # initializing and fixing noise
-        if noise is not None:
-            self.likelihood.initialize(noise=noise)
-
-        if fix_noise:
-            self.likelihood.raw_noise.requires_grad_(False)
-        
-        # Modules
-        self.mean_module = gpytorch.means.ConstantMean()
-        self.covar_module = correlation_kernel_class(
-            ard_num_dims=self.train_inputs[0].size(1),
-            lengthscale_constraint=Interval(0.01, 10.),
+        super().__init__(
+            train_x=train_x,train_y=train_y,
+            warp_input=warp_input
         )
         self.task_covar_module = MultiTaskKernel(num_tasks)
-
-        # priors
-        self.likelihood.register_prior('noise_prior',HalfHorseshoePrior(0.1),'noise')
-        self.mean_module.register_prior('mean_prior',NormalPrior(0.,1.),'constant')
-        self.covar_module.register_prior('lengthscale_prior',LogUniformPrior(0.01,10.),'lengthscale')
+        self.register_buffer('num_tasks',torch.tensor(num_tasks))
 
     def forward(self,x,i):
         mean_x = self.mean_module(x)
@@ -80,8 +50,31 @@ class MultitaskGPModel(ExactGP):
             if not closure(module).requires_grad:
                 continue
             setting_closure(module,prior.expand(closure(module).shape).sample())
+
+    def posterior(
+        self,X:torch.Tensor,i:torch.Tensor,
+        observation_noise:bool=False,
+        posterior_transform=None,**kwargs
+    ):
+        self.eval()  # make sure model is in eval mode
+        # input transforms are applied at `posterior` in `eval` mode, and at
+        # `model.forward()` at the training time
+        X = self.transform_inputs(X)
+
+        with gpt_posterior_settings():
+            mvn = self(X,i)
+
+            if observation_noise:
+                mvn = self.likelihood(mvn, X)
+        
+        posterior = GPyTorchPosterior(distribution=mvn)
+        if hasattr(self, "outcome_transform"):
+            posterior = self.outcome_transform.untransform_posterior(posterior)
+        
+        return posterior
+
     
-    def predict(self,x,i=None,return_std=False,marginalize=False):
+    def predict(self,x,i=None,return_std=False):
         '''
         Returns the prediction mean and variance at the given points
         # if i is None, then return the mean and std of the averaged estimate
@@ -92,21 +85,28 @@ class MultitaskGPModel(ExactGP):
         if i is None:
             # for compatibility with BayesOpt methods
             # return the mean at a single x
-            i = torch.arange(self.num_tasks)
-            x2 = x.repeat(self.num_tasks,1)
-            output = self(x2,i)
-            out_mean = output.mean.mean()*self.y_std + self.y_mean
+            i = torch.tile(torch.arange(self.num_tasks),dims=(x.shape[0],)).unsqueeze(-1).long()
+            x2 = x.repeat_interleave(self.num_tasks,dim=0)
+            out_dist = self.posterior(x2,i).mvn
+            out_mean = out_dist.loc.view(-1,self.num_tasks).mean(dim=-1) #output.mean.mean()*self.y_std + self.y_mean
             if return_std:
-                out_covar = output.covariance_matrix*self.y_std**2
-                out_std = out_covar.sum().sqrt()/self.num_tasks
-                return out_mean,out_std
+                # TODO: fix this for multiple xs
+                out_covar = out_dist.covariance_matrix
+                m = self.num_tasks
+                n = x.shape[0]
+
+                out_std = torch.tensor([
+                    out_covar[idx:(idx+n),idx:(idx+n)].sum() for idx in range(0,m*n,n)
+                ]).sqrt()/self.num_tasks
+                return out_mean,out_std.clamp(1e-6)
 
             return out_mean
         
-        output = self(x,i)
-        out_mean = output.mean*self.y_std + self.y_mean
+        out_dist = self.posterior(x,i).mvn
+        out_mean = out_dist.loc
+
         if return_std:
-            out_std = output.variance.sqrt()*self.y_std
+            out_std = out_dist.stddev.clamp(1e-6)
             return out_mean,out_std
-        
+            
         return out_mean
