@@ -2,7 +2,11 @@ import torch
 import math
 from gpytorch.kernels import Kernel
 from gpytorch.constraints import Positive,GreaterThan
-from gpytorch.lazy import PsdSumLazyTensor,RootLazyTensor,InterpolatedLazyTensor
+from linear_operator.operators import (
+    RootLinearOperator,
+    PsdSumLinearOperator,
+    InterpolatedLinearOperator
+)
 #from gpytorch.utils.broadcasting import _mul_broadcast_shape
 
 class MultiTaskKernel(Kernel):
@@ -58,17 +62,17 @@ class MultiTaskKernel(Kernel):
     
     @property
     def covar_matrix(self):
-        return PsdSumLazyTensor(RootLazyTensor(self.chol_factor))
+        return PsdSumLinearOperator(RootLinearOperator(self.chol_factor))
 
     def forward(self,i1,i2,**params):
+        i1, i2 = i1.long(),i2.long()
         covar_matrix = self._eval_covar_matrix()
-        batch_shape = torch.broadcast_shapes(i1.shape[:-2], self.batch_shape)
-        index_shape = batch_shape + i1.shape[-2:]
+        batch_shape = torch.broadcast_shapes(i1.shape[:-2],i2.shape[:-2],self.batch_shape)
 
-        res = InterpolatedLazyTensor(
+        res = InterpolatedLinearOperator(
             base_lazy_tensor=covar_matrix,
-            left_interp_indices=i1.expand(index_shape),
-            right_interp_indices=i2.expand(index_shape),
+            left_interp_indices=i1.expand(batch_shape + i1.shape[-2:]),
+            right_interp_indices=i2.expand(batch_shape + i2.shape[-2:]),
         )
         return res
 
