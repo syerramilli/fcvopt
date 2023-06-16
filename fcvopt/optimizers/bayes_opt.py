@@ -208,9 +208,7 @@ class BayesOpt:
         # find incumbent
         with warnings.catch_warnings(),torch.no_grad(): 
             warnings.simplefilter(action='ignore',category=gpytorch.utils.warnings.GPInputWarning)
-            train_pred = torch.tensor([
-                self.model.predict(x.view(1,-1)) for x in self.train_x
-            ])
+            train_pred = self.model.predict(self.train_x)
 
         fmin_index = train_pred.argmax().item() 
         self.confs_inc.append(self.train_confs[fmin_index])
