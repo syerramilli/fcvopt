@@ -8,6 +8,7 @@ from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float,Integer,Categorical
 
 from fcvopt.optimizers.fcvopt import FCVOpt
+from fcvopt.optimizers.mtbo_cv import MTBOCVOpt
 from fcvopt.crossvalidation.sklearn_cvobj import XGBoostCVObjEarlyStopping
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
@@ -22,7 +23,7 @@ parser.add_argument('--save_dir',type=str,required=True)
 parser.add_argument(
     '--acq',
     type=str,required=True,
-    choices=['lcb','kg','lcb_batch','kg_batch']
+    choices=['lcb','kg','lcb_batch','kg_batch','mtbo']
 )
 parser.add_argument('--n_init',type=int,required=True)
 parser.add_argument('--n_iter',type=int,required=True)
@@ -94,19 +95,59 @@ config.generate_indices()
 
 #%%
 set_seed(args.seed)
-opt = FCVOpt(
-    obj=cvobj.cvloss,
-    n_folds=cvobj.cv.get_n_splits(),
-    n_repeats=1,
-    fold_selection_criterion='variance_reduction',
-    fold_initialization='stratified',
-    config=config,
-    save_iter=10,
-    save_dir = save_dir,
-    verbose=2,
-    **acq_args
-)
+if args.acq == 'mtbo':
+    opt = MTBOCVOpt(
+        obj=cvobj.cvloss,
+        n_folds=cvobj.cv.get_n_splits(),
+        fold_initialization='stratified',
+        config=config,
+        save_iter=10,
+        save_dir = save_dir,
+        verbose=2,
+    )
+    
+else:
+    acq_args = {}
+    acq_args['acq_function'] = 'LCB' if 'lcb' in args.acq else 'KG'
+    if 'batch' in args.acq:
+        acq_args['batch_acquisition']=True
+        acq_args['acquisition_q']=4
 
-out = opt.run(args.n_iter,n_init=args.n_init)
+    opt = FCVOpt(
+        obj=cvobj.cvloss,
+        n_folds=cvobj.cv.get_n_splits(),
+        n_repeats=1,
+        fold_selection_criterion='variance_reduction',
+        fold_initialization='stratified',
+        config=config,
+        save_iter=10,
+        save_dir = save_dir,
+        verbose=2,
+        **acq_args
+    )
+
+training_path = os.path.join(save_dir,'model_train.pt')
+if os.path.exists(training_path):
+    # resume progress from last time
+    # load saved progress
+    training = torch.load(os.path.join(save_dir,'model_train.pt'))
+    for k,v in training.items():
+        setattr(opt,k,v)
+
+    opt.train_confs = [
+        config.get_conf_from_array(x.numpy()) for x in training['train_x']
+    ]
+
+    # load stat objects
+    stats = joblib.load(os.path.join(save_dir,'stats.pkl'))
+    for k,v in stats.items():
+        setattr(opt,k,v)
+
+    # run the remaining iterations
+    num_iters_completed = len(opt.f_inc_est)
+    out = opt.run(args.n_iter-num_iters_completed)
+else:
+    out = opt.run(args.n_iter,n_init=args.n_init)
+
 # save to disk
 opt.save_to_file(save_dir)
