@@ -3,16 +3,18 @@ import pandas as pd
 import os,joblib
 import torch
 import random
-import optuna
 
 from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float,Integer
 
-from fcvopt.crossvalidation.optuna_obj import get_optuna_objective
+from smac import HyperparameterOptimizationFacade, Scenario
+from smac.initial_design import AbstractInitialDesign
+
 from fcvopt.crossvalidation.mlp_cvobj import MLPCVObj
 from sklearn.metrics import mean_squared_error
 
-from sklearn.preprocessing import QuantileTransformer
+#from sklearn.preprocessing import QuantileTransformer
+from sklearn.preprocessing import StandardScaler
 
 from sklearn.datasets import fetch_openml
 
@@ -28,7 +30,7 @@ parser.add_argument('--n_repeats',type=int,default=1)
 parser.add_argument('--seed',type=int,default=123)
 args = parser.parse_args()
 
-save_dir = os.path.join(args.save_dir,args.dataset,'optuna','seed_%d'%args.seed)
+save_dir = os.path.join(args.save_dir,args.dataset,'SMAC','seed_%d'%args.seed)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -67,7 +69,7 @@ cvobj = MLPCVObj(
     n_repeats=1,
     holdout=False,
     scale_output=True,
-    input_preprocessor=QuantileTransformer(output_distribution='normal')
+    input_preprocessor=StandardScaler()
 )
 
 #%% 
@@ -91,26 +93,32 @@ config.add_hyperparameters([
 config.generate_indices()
 
 #%%
-optuna_obj = get_optuna_objective(cvobj, config)
+def cvloss(config,seed:int=0) -> float:
+    rng  = np.random.default_rng(seed=seed)
+    fold_idxs = rng.choice(len(cvobj.train_test_splits))
+    
+    return cvobj.cvloss(params=config.get_dictionary(),fold_idxs=[fold_idxs])
 
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
-init_trials = [conf.get_dictionary() for conf in config.latinhypercube_sample(args.n_init)]
+initial_confs = config.latinhypercube_sample(args.n_init)
 
-sampler = optuna.samplers.TPESampler(
-    n_startup_trials=args.n_init
+scenario = Scenario(
+    config,
+    n_trials=args.n_init+args.n_iter-1,  
+    output_directory=save_dir,
+    deterministic=False
 )
 
-study = optuna.create_study(
-    directions=['minimize'],sampler=sampler,
-    study_name=f'mlp{args.dataset}_{args.seed}',
-    storage = f'sqlite:///{save_dir}/storage.db'
+initial_design = AbstractInitialDesign(
+    scenario=scenario,n_configs=0,additional_configs=initial_confs)
+
+# Create our SMAC object and pass the scenario and the train method
+smac = HyperparameterOptimizationFacade(
+    scenario,
+    cvloss,
+    initial_design=initial_design,
+    overwrite=True,
 )
 
-for trial in init_trials:
-    study.enqueue_trial(trial)
-
-study.optimize(optuna_obj, n_trials=args.n_init+args.n_iter-1, timeout=None)
-
-# save results to file
-joblib.dump(study,os.path.join(save_dir,'study.pkl'))
+incumbent = smac.optimize()

@@ -8,6 +8,7 @@ from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float,Integer
 
 from fcvopt.optimizers.fcvopt import FCVOpt
+from fcvopt.optimizers.mtbo_cv import MTBOCVOpt
 from fcvopt.crossvalidation.mlp_cvobj import MLPCVObj
 from sklearn.metrics import mean_squared_error
 
@@ -23,7 +24,7 @@ parser.add_argument('--save_dir',type=str,required=True)
 parser.add_argument(
     '--acq',
     type=str,required=True,
-    choices=['lcb','kg','lcb_batch','kg_batch']
+    choices=['lcb','kg','lcb_batch','kg_batch','mtbo']
 )
 parser.add_argument('--n_init',type=int,required=True)
 parser.add_argument('--n_iter',type=int,required=True)
@@ -85,7 +86,7 @@ if 'batch' in args.acq:
 #%% 
 config = ConfigurationSpace(seed=1234)
 config.add_hyperparameters([
-    Integer('hsize%d'%i,bounds=(8,512),log=True) for i in range(n_hidden)
+    Integer('hsize%d'%i,bounds=(8,256),log=True) for i in range(n_hidden)
 ])
 
 # dropouts
@@ -96,7 +97,7 @@ config.add_hyperparameters([
 # remaining hyperparameters
 config.add_hyperparameters([
     Float('lr',bounds=(1e-5,0.1),log=True),
-    Integer('batch_size',bounds=(32,2048)),
+    Integer('batch_size',bounds=(32,2048),log=True),
     Float('weight_decay',bounds=(1e-8,1),log=True),
     Float('callbacks__LRScheduler__factor',bounds=(0.1,0.5))
 ])
@@ -104,18 +105,36 @@ config.generate_indices()
 
 #%%
 set_seed(args.seed)
-opt = FCVOpt(
-    obj=cvobj.cvloss,
-    n_folds=cvobj.cv.get_n_splits(),
-    n_repeats=1,
-    fold_selection_criterion='variance_reduction',
-    fold_initialization='stratified',
-    config=config,
-    save_iter=10,
-    save_dir = save_dir,
-    verbose=2,
-    **acq_args
-)
+if args.acq == 'mtbo':
+    opt = MTBOCVOpt(
+        obj=cvobj.cvloss,
+        n_folds=cvobj.cv.get_n_splits(),
+        fold_initialization='stratified',
+        config=config,
+        save_iter=10,
+        save_dir = save_dir,
+        verbose=2,
+    )
+    
+else:
+    acq_args = {}
+    acq_args['acq_function'] = 'LCB' if 'lcb' in args.acq else 'KG'
+    if 'batch' in args.acq:
+        acq_args['batch_acquisition']=True
+        acq_args['acquisition_q']=4
+
+    opt = FCVOpt(
+        obj=cvobj.cvloss,
+        n_folds=cvobj.cv.get_n_splits(),
+        n_repeats=1,
+        fold_selection_criterion='variance_reduction',
+        fold_initialization='stratified',
+        config=config,
+        save_iter=10,
+        save_dir = save_dir,
+        verbose=2,
+        **acq_args
+    )
 
 training_path = os.path.join(save_dir,'model_train.pt')
 if os.path.exists(training_path):
