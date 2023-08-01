@@ -30,4 +30,4 @@ class ActiveLearningCohn(AcquisitionFunction):
         term3 = Knew_ref**2
 
         impv = (term1+term2+term3)/den
-        return impv.mean().log()
+        return (1e-8+impv.mean()).log()
