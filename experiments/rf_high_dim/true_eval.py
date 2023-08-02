@@ -27,11 +27,11 @@ from functools import partial
 
 parser = ArgumentParser(description='Random forest classification')
 parser.add_argument('--dataset',type=str,required=True)
+parser.add_argument('--runs_dir',type=str,required=True)
 parser.add_argument('--save_dir',type=str,required=True)
-parser.add_argument('--n_jobs',type=int,required=True)
+parser.add_argument('--n_jobs',type=int,default=1)
+parser.add_argument('--n_surrogate_evals',type=int,default=250)
 args = parser.parse_args()
-
-RUNS_DIR = 'opt_runs/'
 
 save_dir = os.path.join(args.save_dir,args.dataset)
 if not os.path.exists(save_dir):
@@ -150,7 +150,7 @@ for acqfunc in acqfuncs:
     algorithm = acqfunc if acqfunc in ['optuna','SMAC'] else 'inhouse'
     #algorithm = 'optuna' if acqfunc == 'optuna' else 'inhouse'
     lists_conf_lists.append(
-        load_confs(RUNS_DIR + '%s/%s/'%(args.dataset,acqfunc),config,algorithm)
+        load_confs(args.runs_dir + '%s/%s/'%(args.dataset,acqfunc),config,algorithm)
     )
 
 confs_unq = []
@@ -182,7 +182,7 @@ alc_obj = ActiveLearning(
     save_dir=save_dir,
     save_iter=1
 )
-_ = alc_obj.run(n_iter=241,n_init=10) # 200 evaluations
+_ = alc_obj.run(n_iter=args.n_surrogate_evals-10+1,n_init=10) # args.n_surrogate_evals evaluations
 
 # save to disk
 alc_obj.save_to_file(save_dir)

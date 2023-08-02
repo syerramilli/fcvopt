@@ -51,3 +51,21 @@ python run_optuna.py \
 --n_iter 91 \
 --seed 100
 ```
+
+## Bash script to train a surrogate model for the 'true' CV loss
+
+After completing the experiments for ALL optimizers for a dataset, run `true_eval.py` with the following syntax
+
+```
+python true_eval.py \
+--dataset <dataset_name> \
+--runs_dir <path_to_opt_runs> \
+--save_dir <path_to_save_true_model> \
+--n_jobs <number_of_cores_available>
+```
+
+### Notes:
+
+1. This script is expensive to run.
+2. Data is added to the model sequentially using an active learning framework. 
+3. If there are multiple cores available, the parallelization is performed over the fold evaluations. 
