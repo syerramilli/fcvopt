@@ -51,3 +51,9 @@ python run_xgb_optuna.py \
 --n_iter 111 \
 --seed 100
 ```
+
+### Notes:
+
+1. This script is expensive to run.
+2. Data is added to the model sequentially using an active learning framework. 
+3. If there are multiple cores available, the parallelization is performed over the fold evaluations. 

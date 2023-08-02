@@ -6,7 +6,14 @@ import random
 
 import joblib
 
+from smac.runhistory import RunHistory
+from smac import Scenario
+from smac.intensifier import Intensifier
+from pathlib import Path
+
+
 from fcvopt.configspace import ConfigurationSpace
+from ConfigSpace import Configuration
 from ConfigSpace import Float,Integer,Categorical
 from fcvopt.optimizers.active_learning import ActiveLearning
 
@@ -20,16 +27,30 @@ from functools import partial
 
 parser = ArgumentParser(description='XGBoost classification')
 parser.add_argument('--dataset',type=str,required=True)
+parser.add_argument('--runs_dir',type=str,required=True)
 parser.add_argument('--save_dir',type=str,required=True)
-parser.add_argument('--n_jobs',type=int,required=True)
+parser.add_argument('--n_jobs',type=int,default=1)
+parser.add_argument('--n_surrogate_evals',type=int,default=500)
 args = parser.parse_args()
-
-RUNS_DIR = 'runs/'
 
 save_dir = os.path.join(args.save_dir,args.dataset)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
+#%%
+config = ConfigurationSpace(seed=1234)
+config.add_hyperparameters([
+    Float('learning_rate',bounds=(1e-5,0.95),log=True),
+    Integer('max_depth',bounds=(1,12),log=True),
+    Integer('max_leaves',bounds=(2,1024),log=True),
+    Float('reg_alpha',bounds=(1e-8,100),log=True),
+    Float('reg_lambda',bounds=(1e-8,100),log=True),
+    Float('gamma',bounds=(1e-8,100),log=True),
+    Float('subsample',bounds=(0.1,1.)),
+    Float('colsample_bytree',bounds=(0.1,1.)),
+    Categorical('grow_policy', ['depthwise','lossguide'])
+])
+config.generate_indices()
 
 #%%
 def metric(y_true,y_pred):
@@ -40,16 +61,64 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-def load_confs(save_dir):
+def load_confs(save_dir,config=None,algorithm='inhouse'):
     folders = sorted(os.listdir(save_dir))
     out = []
     for folder in folders:
         try:
-            tmp = joblib.load(os.path.join(
-                save_dir,folder,'stats.pkl'
-            ))['confs_inc']
+            if algorithm == 'inhouse':
+                tmp = joblib.load(os.path.join(
+                    save_dir,folder,'stats.pkl'
+                ))['confs_inc']
+            elif algorithm == 'optuna':
+                study = joblib.load(os.path.join(
+                    save_dir,folder,'study.pkl'
+                ))
+                
+                best_loss = np.inf
+                tmp = []
+                for trial in study.trials:
+                    if best_loss < trial.values[0]:
+                        tmp.append(tmp[-1])
+                    else:
+                        tmp.append(Configuration(config,values=trial.params))
+                        best_loss = trial.values[0]
+                        
+                tmp = tmp[9:]
+            elif algorithm == 'SMAC':
+                full_path = os.path.join(save_dir,folder)
+                subfolder = os.listdir(full_path)[0]
+                
+                final_path = Path(full_path,subfolder,'0')
+                
+                scenario = Scenario.load(final_path)
+                
+                runhistory = RunHistory()
+                runhistory.load(final_path/'runhistory.json',configspace=scenario.configspace)
+                
+                id_configs = {v:k for k,v in runhistory.config_ids.items()}
+                
+                intensifier=Intensifier(scenario)
+                intensifier._runhistory = runhistory
+                intensifier.load(final_path/'intensifier.json')
+                
+                trial_history = []
+                trial_updates = []
+                for t in intensifier.trajectory:
+                    trial_history.append(id_configs[t.config_ids[0]])
+                    trial_updates.append(t.trial)
+
+                reps = np.diff(np.concatenate([trial_updates,[scenario.n_trials+1]]))
+                    
+                tmp = []
+                for i,conf in enumerate(trial_history):
+                    tmp.extend([conf]*reps[i])
+
+                tmp = tmp[9:]
+                
             out.append(tmp)
-        except:
+        except Exception as e:
+            print(e)
             print(folder)
     return out
 
@@ -81,8 +150,16 @@ cvobj = XGBoostCVObjEarlyStopping(
 )
 
 #%%
-lists_conf_lists = [
-    load_confs(RUNS_DIR + '%s/%s/'%(args.dataset,s)) for s in ['kg','kg_batch']]
+acqfuncs = ['kg','kg_batch','optuna','SMAC']
+
+lists_conf_lists = []
+for acqfunc in acqfuncs:
+    algorithm = acqfunc if acqfunc in ['optuna','SMAC'] else 'inhouse'
+    #algorithm = 'optuna' if acqfunc == 'optuna' else 'inhouse'
+    lists_conf_lists.append(
+        load_confs(args.runs_dir + '%s/%s/'%(args.dataset,acqfunc),config,algorithm)
+    )
+
 confs_unq = []
 
 unique_confs = set()
@@ -95,20 +172,6 @@ for list_confs_list in lists_conf_lists:
             
 unique_confs = list(unique_confs)
 
-#%%
-config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
-    Float('learning_rate',bounds=(1e-5,0.95),log=True),
-    Integer('max_depth',bounds=(1,12),log=True),
-    Integer('max_leaves',bounds=(2,1024),log=True),
-    Float('reg_alpha',bounds=(1e-8,100),log=True),
-    Float('reg_lambda',bounds=(1e-8,100),log=True),
-    Float('gamma',bounds=(1e-8,100),log=True),
-    Float('subsample',bounds=(0.1,1.)),
-    Float('colsample_bytree',bounds=(0.1,1.)),
-    Categorical('grow_policy', ['depthwise','lossguide'])
-])
-config.generate_indices()
 
 #%%
 set_seed(5)
@@ -127,7 +190,30 @@ alc_obj = ActiveLearning(
     save_dir=save_dir,
     save_iter=1
 )
-_ = alc_obj.run(n_iter=241,n_init=10) # 200 evaluations
+n_iter = args.n_surrogate_evals - 10 + 1
+
+training_path = os.path.join(save_dir,'model_train.pt')
+if os.path.exists(training_path):
+    # resume progress from last time
+    # load saved progress
+    training = torch.load(os.path.join(save_dir,'model_train.pt'))
+    for k,v in training.items():
+        setattr(alc_obj,k,v)
+
+    alc_obj.train_confs = [
+        config.get_conf_from_array(x.numpy()) for x in training['train_x']
+    ]
+
+    # load stat objects
+    stats = joblib.load(os.path.join(save_dir,'stats.pkl'))
+    for k,v in stats.items():
+        setattr(alc_obj,k,v)
+
+    # run the remaining iterations
+    num_iters_completed = len(alc_obj.acq_vec)
+    _ = alc_obj.run(n_iter-num_iters_completed)
+else:
+    _ = alc_obj.run(n_iter=n_iter,n_init=10)
 
 # save to disk
 alc_obj.save_to_file(save_dir)
