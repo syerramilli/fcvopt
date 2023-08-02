@@ -27,11 +27,11 @@ from functools import partial
 
 parser = ArgumentParser(description='MLP Regression')
 parser.add_argument('--dataset',type=str,required=True)
+parser.add_argument('--runs_dir',type=str,required=True)
 parser.add_argument('--save_dir',type=str,required=True)
-parser.add_argument('--n_jobs',type=int,required=True)
+parser.add_argument('--n_jobs',type=int,default=1)
+parser.add_argument('--n_surrogate_evals',type=int,default=500)
 args = parser.parse_args()
-
-RUNS_DIR = 'runs_shrunk-hsize/'
 
 save_dir = os.path.join(args.save_dir,args.dataset)
 if not os.path.exists(save_dir):
@@ -166,7 +166,7 @@ for acqfunc in acqfuncs:
     algorithm = acqfunc if acqfunc in ['optuna','SMAC'] else 'inhouse'
     #algorithm = 'optuna' if acqfunc == 'optuna' else 'inhouse'
     lists_conf_lists.append(
-        load_confs(RUNS_DIR + '%s/%s/'%(args.dataset,acqfunc),config,algorithm)
+        load_confs(args.runs_dir + '%s/%s/'%(args.dataset,acqfunc),config,algorithm)
     )
 
 confs_unq = []
@@ -199,7 +199,7 @@ alc_obj = ActiveLearning(
     save_iter=1
 )
 
-n_iter = 491
+n_iter = args.n_surrogate_evals - 10 + 1
 
 training_path = os.path.join(save_dir,'model_train.pt')
 if os.path.exists(training_path):
