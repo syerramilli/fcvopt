@@ -155,7 +155,8 @@ cvobj = MLPCVObj(
     n_repeats=1,
     holdout=False,
     scale_output=True,
-    input_preprocessor=QuantileTransformer(output_distribution='normal')
+    input_preprocessor=QuantileTransformer(output_distribution='normal'),
+    num_jobs=args.n_jobs
 )
 
 #%%
