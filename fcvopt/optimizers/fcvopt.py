@@ -63,6 +63,14 @@ class FCVOpt(BayesOpt):
                 self.train_folds = torch.randint(self.n_folds,(n_init,1)).double()
             elif self.fold_initialization == 'stratified':
                 self.train_folds = torch.from_numpy(stratified_sample(self.n_folds,n_init)).double().view(-1,1)
+            elif self.fold_initialization == 'two_folds':
+                folds_choice = np.random.choice(self.n_folds, 2)
+                fold_1_samples = n_init // 2
+                fold_0_samples = n_init - fold_1_samples
+
+                self.train_folds = torch.tensor(
+                    [folds_choice[0]] * fold_0_samples + [folds_choice[1]] * fold_1_samples
+                ).double().view(-1, 1)
 
             for conf,fold_idx in zip(self.train_confs,self.train_folds):
                 x,y,eval_time = self._evaluate(conf,fold_idxs=fold_idx.int().tolist())
