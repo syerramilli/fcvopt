@@ -93,7 +93,6 @@ config.add_hyperparameters([
     Float('residual_dropout', bounds=(0, 0.5)),
     Float('lr', bounds=(1e-5, 0.1), log=True),
     Float('weight_decay', bounds=(1e-8, 1e-2), log=True),
-    Integer('batch_size', bounds=(32, 2048), log=True)
 ])
 config.generate_indices()
 
