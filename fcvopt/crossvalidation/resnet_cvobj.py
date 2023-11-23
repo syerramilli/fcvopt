@@ -105,6 +105,7 @@ class ResNetCVObj(SklearnCVObj):
         model = skorch_class(
             module = TabularResNet,
             criterion=criterion,
+            iterator_train__shuffle=True,
             module__input_dim=self.input_dim,
             module__output_dim=self.num_targets,
             module__n_hidden= params['n_hidden'],
@@ -118,9 +119,9 @@ class ResNetCVObj(SklearnCVObj):
                     lower_is_better=True,
                     name='valid_metric'
                 ),
-                EarlyStopping(patience=15, monitor='valid_metric',load_best=True),
+                EarlyStopping(patience=15, monitor='valid_metric', load_best=True),
                 LRScheduler(
-                    policy='ReduceLROnPlateau',monitor='valid_metric',
+                    policy='ReduceLROnPlateau', monitor='valid_metric',
                     factor=0.1,
                     mode='min',
                     patience=5,
@@ -133,7 +134,7 @@ class ResNetCVObj(SklearnCVObj):
             optimizer__weight_decay = params['weight_decay'],
             max_epochs=self.max_epochs,
             batch_size=params.get('batch_size', 256),
-            train_split=ValidSplit(10,stratified=True if 'classification' in self.task else False),
+            train_split=ValidSplit(10, stratified=True if 'classification' in self.task else False),
             verbose=0
         )
 
