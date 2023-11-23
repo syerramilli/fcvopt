@@ -84,7 +84,7 @@ class ResNetCVObj(SklearnCVObj):
 
         self.num_targets = 1 # for regression and binary-classification
         if 'classification' in self.task:
-            self.y = self.y.astype(np.float32)
+            self.y = self.y.astype(np.int64)
             if self.task =='classification':
                 self.num_targets = np.unique(self.y).size
             
@@ -98,9 +98,6 @@ class ResNetCVObj(SklearnCVObj):
         elif self.task == 'classification':
             skorch_class = NeuralNetClassifier
             criterion = nn.CrossEntropyLoss
-        else:
-            skorch_class = NeuralNetBinaryClassifier
-            criterion = nn.BCEWithLogitsLoss
 
         model = skorch_class(
             module = TabularResNet,
