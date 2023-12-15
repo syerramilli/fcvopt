@@ -23,6 +23,7 @@ class ActiveLearning:
         obj:Callable,
         config:ConfigurationSpace,
         X_ref:torch.Tensor,
+        acquisition_type:str='alc',
         n_jobs:int=1,
         verbose:int=1,
         save_iter:Optional[int]=None,
@@ -31,6 +32,7 @@ class ActiveLearning:
         self.obj = obj
         self.config = config
         self.X_ref = X_ref
+        self.acquisition_type = acquisition_type
         self.n_jobs = n_jobs
         self.verbose=verbose
         self.save_iter = save_iter
@@ -152,7 +154,6 @@ class ActiveLearning:
         self.model = self._construct_model()
 
         start_time = time.time()
-        start_time = time.time()
         if self.initial_params is not None:
             self.model.initialize(**self.initial_params)
 
@@ -162,7 +163,7 @@ class ActiveLearning:
 
         self.initial_params = OrderedDict()
         for name,parameter in self.model.named_parameters():
-                self.initial_params[name] = parameter.detach().clone()
+            self.initial_params[name] = parameter.detach().clone()
             
         # generate model cache
         self.model.eval()
@@ -176,17 +177,27 @@ class ActiveLearning:
         ).double()
     
     def _acquisition(self) -> None:
-        acqobj = ActiveLearningCohn(self.model, self.X_ref)
-        
-        acqopt = AcqFunOptimizer(
-            acq_fun=acqobj,
-            ndim = self.config.ndim,
-            num_starts = 10*self.config.ndim,
-            x0=None,
-            num_jobs=1,
-        )
-        start_time = time.time()
-        next_x = acqopt.run()
-        self.acqopt_time.append(time.time()-start_time)
-        self.confs_cand.append([self.config.get_conf_from_array(next_x)])
-        self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
+        if self.acquisition_type == 'alc':
+            acqobj = ActiveLearningCohn(self.model, self.X_ref)
+            
+            acqopt = AcqFunOptimizer(
+                acq_fun=acqobj,
+                ndim = self.config.ndim,
+                num_starts = 10*self.config.ndim,
+                x0=None,
+                num_jobs=1,
+            )
+            start_time = time.time()
+            next_x = acqopt.run()
+            self.acqopt_time.append(time.time()-start_time)
+            self.confs_cand.append([self.config.get_conf_from_array(next_x)])
+            self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
+        else:
+            ## sample the Xref with the largest posterior variance
+            start_time = time.time()
+            with torch.no_grad():
+                _, post_std = self.model.predict(self.X_ref, return_std=True)
+            idx_argmax = post_std.argmax().item()
+            self.acqopt_time.append(time.time()-start_time)
+            self.confs_cand.append([self.config.get_conf_from_array(self.X_ref[idx_argmax,:].numpy())])
+            self.acq_vec.append(-post_std[idx_argmax].item())   
