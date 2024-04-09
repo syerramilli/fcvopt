@@ -7,8 +7,9 @@ import random
 from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float, Integer, Categorical
 
-from fcvopt.optimizers.fcvopt import FCVOpt
-from fcvopt.optimizers.mtbo_cv import MTBOCVOpt
+from smac import HyperparameterOptimizationFacade, Scenario
+from smac.initial_design import AbstractInitialDesign
+
 from fcvopt.crossvalidation.resnet_cvobj import ResNetCVObj
 from sklearn.metrics import mean_squared_error
 
@@ -18,14 +19,9 @@ from sklearn.datasets import fetch_openml
 
 from argparse import ArgumentParser
 
-parser = ArgumentParser(description='Resnet tabular regression')
+parser = ArgumentParser(description='Tabular regression')
 parser.add_argument('--dataset',type=str,required=True)
 parser.add_argument('--save_dir',type=str,required=True)
-parser.add_argument(
-    '--acq',
-    type=str,required=True,
-    choices=['lcb','kg','lcb_batch','kg_batch','mtbo']
-)
 parser.add_argument('--n_init',type=int,required=True)
 parser.add_argument('--n_iter',type=int,required=True)
 parser.add_argument('--n_folds',type=int,default=10)
@@ -33,7 +29,7 @@ parser.add_argument('--n_repeats',type=int,default=1)
 parser.add_argument('--seed',type=int,default=123)
 args = parser.parse_args()
 
-save_dir = os.path.join(args.save_dir,args.dataset,args.acq,'seed_%d'%args.seed)
+save_dir = os.path.join(args.save_dir,args.dataset,'SMAC','seed_%d'%args.seed)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -74,14 +70,6 @@ cvobj = ResNetCVObj(
     input_preprocessor=QuantileTransformer(output_distribution='uniform')
 )
 
-
-#%% parse acquistion arguments
-acq_args = {}
-acq_args['acq_function'] = 'LCB' if 'lcb' in args.acq else 'KG'
-if 'batch' in args.acq:
-    acq_args['batch_acquisition']=True
-    acq_args['acquisition_q']=4
-
 #%% 
 config = ConfigurationSpace()
 
@@ -98,60 +86,33 @@ config.add_hyperparameters([
 config.generate_indices()
 
 #%%
-set_seed(args.seed)
-if args.acq == 'mtbo':
-    opt = MTBOCVOpt(
-        obj=cvobj.cvloss,
-        n_folds=cvobj.cv.get_n_splits(),
-        fold_initialization='stratified',
-        config=config,
-        save_iter=10,
-        save_dir = save_dir,
-        verbose=2,
-    )
+def cvloss(config,seed:int=0) -> float:
+    rng  = np.random.default_rng(seed=seed)
+    fold_idxs = rng.choice(len(cvobj.train_test_splits))
     
-else:
-    acq_args = {}
-    acq_args['acq_function'] = 'LCB' if 'lcb' in args.acq else 'KG'
-    if 'batch' in args.acq:
-        acq_args['batch_acquisition']=True
-        acq_args['acquisition_q']=4
+    return cvobj.cvloss(params=config.get_dictionary(),fold_idxs=[fold_idxs])
 
-    opt = FCVOpt(
-        obj=cvobj.cvloss,
-        n_folds=cvobj.cv.get_n_splits(),
-        n_repeats=1,
-        fold_selection_criterion='variance_reduction',
-        fold_initialization='stratified',
-        config=config,
-        save_iter=10,
-        save_dir = save_dir,
-        verbose=2,
-        **acq_args
-    )
 
-training_path = os.path.join(save_dir,'model_train.pt')
-if os.path.exists(training_path):
-    # resume progress from last time
-    # load saved progress
-    training = torch.load(os.path.join(save_dir,'model_train.pt'))
-    for k,v in training.items():
-        setattr(opt,k,v)
+set_seed(args.seed)
+config.seed(np.random.randint(2e+4))
+initial_confs = config.latinhypercube_sample(args.n_init)
 
-    opt.train_confs = [
-        config.get_conf_from_array(x.numpy()) for x in training['train_x']
-    ]
+scenario = Scenario(
+    config,
+    n_trials=args.n_init+args.n_iter-1,  
+    output_directory=save_dir,
+    deterministic=False
+)
 
-    # load stat objects
-    stats = joblib.load(os.path.join(save_dir,'stats.pkl'))
-    for k,v in stats.items():
-        setattr(opt,k,v)
+initial_design = AbstractInitialDesign(
+    scenario=scenario,n_configs=0,additional_configs=initial_confs)
 
-    # run the remaining iterations
-    num_iters_completed = len(opt.f_inc_est)
-    out = opt.run(args.n_iter-num_iters_completed)
-else:
-    out = opt.run(args.n_iter,n_init=args.n_init)
+# Create our SMAC object and pass the scenario and the train method
+smac = HyperparameterOptimizationFacade(
+    scenario,
+    cvloss,
+    initial_design=initial_design,
+    overwrite=True,
+)
 
-# save to disk
-opt.save_to_file(save_dir)
+incumbent = smac.optimize()
