@@ -98,7 +98,7 @@ if args.acq == 'mtbo':
         config=config,
         save_iter=10,
         save_dir = save_dir,
-        verbose=2,
+        verbose=1,
     )
 else:
     acq_args = {}
@@ -116,7 +116,7 @@ else:
         config=config,
         save_iter=10,
         save_dir = save_dir,
-        verbose=2,
+        verbose=1,
         **acq_args
     )
 

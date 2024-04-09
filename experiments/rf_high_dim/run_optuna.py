@@ -28,11 +28,15 @@ parser.add_argument('--n_iter',type=int,required=True)
 parser.add_argument('--n_folds',type=int,default=10)
 parser.add_argument('--n_repeats',type=int,default=1)
 parser.add_argument('--seed',type=int,default=123)
+parser.add_argument('--verbose', action='store_true')
 args = parser.parse_args()
 
 save_dir = os.path.join(args.save_dir,args.dataset,'optuna','seed_%d'%args.seed)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
+
+if not args.verbose:
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 #%%
 def metric(y_true,y_pred):
@@ -90,8 +94,7 @@ sampler = optuna.samplers.TPESampler(
 
 study = optuna.create_study(
     directions=['minimize'],sampler=sampler,
-    study_name=f'rf_{args.dataset}_{args.seed}',
-    storage = f'sqlite:///{save_dir}/storage.db'
+    study_name=f'rf_{args.dataset}_{args.seed}'
 )
 
 for trial in init_trials:

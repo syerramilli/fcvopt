@@ -174,7 +174,7 @@ true_model = torch.jit.load(os.path.join(args.true_cv_models_dir, f'{args.datase
 acqfuncs = ['kg', 'mtbo', 'SMAC', 'optuna']
 
 runs_dir_dataset = os.path.join(args.runs_dir, args.dataset)
-res_true_lists = [None]*len(acqfuncs)
+res_true_dict = {}
 
 for i in range(len(acqfuncs)):
     tmp_mean = []
@@ -200,12 +200,7 @@ for i in range(len(acqfuncs)):
 
         tmp_mean.append(pred.numpy())
 
-    print(acqfuncs[i], [x.shape for x in tmp_mean])
-    res_true_lists[i] = np.column_stack(tmp_mean)
-    
-res_true_dict = {
-    acqfunc:res_true for acqfunc,res_true in zip(acqfuncs,res_true_lists)
-}
+    res_true_dict[acqfuncs[i]] = np.column_stack(tmp_mean)
 
 #%% Plots
 labels_dict = {
@@ -239,7 +234,7 @@ for acqfunc,res_true in res_true_dict.items():
 
 _ = ax.legend()
 _ = ax.set_xlabel('Number ($N$) of fold evaluations')
-_ = ax.set_ylabel(r'$f_\mathrm{true}\left(\mathbf{x}_\mathrm{inc}^{(N)}\right)$ for' + loss_fn_string)
+_ = ax.set_ylabel(r'$f_\mathrm{true}\left(\mathbf{x}_\mathrm{inc}^{(N)}\right)$ for ' + loss_fn_string)
 _ = ax.set_title(f'{model_string}: {args.dataset}')
     
 fig.savefig(os.path.join(args.save_dir, f'fig-{args.model}-{args.dataset}.pdf'), bbox_inches='tight')

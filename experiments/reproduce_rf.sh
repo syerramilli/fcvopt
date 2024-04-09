@@ -2,14 +2,13 @@
 cd rf_high_dim
 
 DATASET=madelon
-RUNS_DIR=tmp2 # this will be inside rf_high_dim
+RUNS_DIR=opt_runs # this will be inside rf_high_dim
 FIG_DIR=figures_auto # this will be in the main experiments folders
 N_INIT=10
-N_ITER=5
+N_ITER=91
 
 # run all the experiments
-# for SEED IN 1000 1107 1214 1321 1428 1535 1642 1750 1857 1964 2071 2178 2285 2392 2500
-for SEED in 1000 1107 1214 1321
+for SEED IN 1000 1107 1214 1321 1428 1535 1642 1750 1857 1964 2071 2178 2285 2392 2500
 do
     python run_fcvopt.py \
     --dataset $DATASET \
