@@ -103,8 +103,7 @@ sampler = optuna.samplers.TPESampler(
 
 study = optuna.create_study(
     directions=['minimize'],sampler=sampler,
-    study_name=f'mlp{args.dataset}_{args.seed}',
-    storage = f'sqlite:///{save_dir}/storage.db'
+    study_name=f'mlp{args.dataset}_{args.seed}'
 )
 
 for trial in init_trials:
