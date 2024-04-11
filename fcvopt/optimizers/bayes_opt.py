@@ -240,14 +240,16 @@ class BayesOpt:
         elif self.acq_function == 'KG':
             # first must find the current best posterior mean 
             start_time = time.time()
-            _, max_pmean = optimize_acqf(
-                acq_function=PosteriorMean(self.model),
-                bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
-                q=1,
-                num_restarts=20,
-                raw_samples=200,
-            )
-            preprocess_time = time.time()-start_time
+            # _, max_pmean = optimize_acqf(
+            #     acq_function=PosteriorMean(self.model),
+            #     bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
+            #     q=1,
+            #     num_restarts=10,
+            #     raw_samples=128,
+            #     options={"batch_limit": 5, "maxiter": 200},
+            # )
+            # preprocess_time = time.time()-start_time
+            max_pmean = None
             acqobj = qKnowledgeGradient(self.model,current_value=max_pmean,num_fantasies=16)
 
         start_time = time.time()
@@ -256,7 +258,8 @@ class BayesOpt:
             bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
             q=1 if not self.batch_acquisition else self.acquisition_q,
             num_restarts=10 if self.acq_function == 'KG' else 20, # KG is much more expensive
-            raw_samples=200
+            raw_samples=128,
+            options={"batch_limit": 5, "maxiter": 500},
         )
         end_time = time.time()
         self.acqopt_time.append(preprocess_time + end_time-start_time)
