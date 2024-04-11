@@ -97,7 +97,7 @@ sampler = optuna.samplers.TPESampler(
 
 study = optuna.create_study(
     directions=['minimize'],sampler=sampler,
-    study_name=f'mlp{args.dataset}_{args.seed}'
+    study_name=f'tab_resnet_{args.dataset}_{args.seed}'
 )
 
 n_trials = args.n_init+args.n_iter-1
