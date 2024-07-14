@@ -8,17 +8,7 @@ The experiements are all contained in the `experiments` folder. Each subdirector
 Prior to running them, the `fcvopt` package must be installed. This can be done through pip:
 
 ```{bash}
-pip install <path_to_directory>
+cd <path_to_directory>
+pip install .[experiments]
 ```
-
-This will also install any required packages.
-
-**Requirements**:
-- python >= 3.8
-- torch >= 1.13
-- gpytorch >= 1.9
-- botorch >= 0.8
-- numpy >= 1.2
-- scipy >= 1.10
-- scikit-learn >= 1.12
-- skorch >= 0.13
+This will also install the required packages, along with the additional packages required to run the experiments.
