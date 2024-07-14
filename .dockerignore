@@ -1,0 +1,6 @@
+# Exclude directory
+notebooks/
+examples/
+.vscode/
+experiments/
+tests/
