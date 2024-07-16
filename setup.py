@@ -7,24 +7,21 @@ here = os.path.abspath(os.path.dirname(__file__))
 with open('requirements.txt') as f:
       install_requires = f.read().splitlines()
 
+with open('exp_requirements.txt') as f:
+      exp_requirements = f.read().splitlines()
+
 setup(
       name='fcvopt',
       version='0.1',
-      description='Fast k-fold cross-validation',
+      description='Fractional K-fold cross-validation for hyperparameter optimization',
       url='http://github.com/syerramilli/fcvopt',
       author='Suraj Yerramilli',
       author_email='surajyerramilli@gmail.com',
       license='MIT',
-      packages=find_packages(),
+      packages=find_packages(exclude=['notebooks', 'tests', 'examples', 'experiments']),
       install_requires=install_requires,
       extras_require={
-            'experiments': [
-                  'pandas>=2.0.0,<=2.2.0',
-                  'matplotlib>=3.7.0,<3.8.0',
-                  'seaborn>=0.12.2',
-                  'smac==2.0.0',
-                  'optuna>=3.6.0',
-            ]
+            'experiments': exp_requirements
       },
       zip_safe=False
 )
