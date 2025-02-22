@@ -5,15 +5,29 @@ This repository containts code to reproduce the results from the paper "Fraction
 The experiements are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files. 
 
 ## Installation 
-Prior to running them, the `fcvopt` package must be installed. This can be done through pip:
+Prior to running the experiments, the `fcvopt` package must be installed. This can be done through pip:
 
 ```{bash}
 cd <path_to_directory>
 pip install .[experiments]
 ```
-This will also install the required packages, along with the additional packages required to run the experiments.
+This will also install the dependencies, along with the additional packages required to run the experiments.
+
+**Note:**
+The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the `pyrfr` package. While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler installed on your system. 
 
 ## Setting up virtual environments/ containers
+
+### Virtual environment
+
+The bash script file `venv_setup.sh` can be used to create a virtual environment and install the required packages. Ensure you have Python 3.8 or later installed.
+
+To run the script, use the following commands:
+
+```{bash}
+chmod +x venv_setup.sh
+./venv_setup.sh
+```
 
 ### Docker
 
