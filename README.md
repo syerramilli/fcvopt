@@ -13,7 +13,9 @@ pip install .[experiments]
 ```
 This will also install the required packages, along with the additional packages required to run the experiments.
 
-## Dockerfile
+## Setting up virtual environments/ containers
+
+### Docker
 
 A Dockerfile is provided to run the experiments in a container with the `fcvopt` package and all the required dependencies. The Dockerfile is based on the Python 3.10 debian image. To build the image, run the following command:
 
@@ -24,7 +26,14 @@ docker build -t fcvopt_test .
 To run the container with the files in the `experiments` folder mounted, run the following command:
 
 ```{bash}
-docker run -v <path_to_experiments_folder>:/experiments -it fcvopt_test
+docker run -v <path_to_experiments_folder>:/app/experiments -it fcvopt_test
 ```
 
-This will launch the container and open a bash shell. The experiments directory will be mounted in the container at `/app/experiments`. The experiments can be run from this directory.
+Replace <path_to_experiments_folder> with the absolute path to your local experiments directory. This will launch the container and open a bash shell. The experiments directory will be mounted in the container at `/app/experiments`. 
+
+Once inside the container, you can navigate to the /app/experiments directory and run the experiments as needed. For example:
+
+```{bash}
+cd experiments
+bash reprodce_rf.sh
+```
