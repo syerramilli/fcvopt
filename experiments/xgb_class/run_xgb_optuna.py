@@ -93,10 +93,13 @@ sampler = optuna.samplers.TPESampler(
     n_startup_trials=args.n_init
 )
 
+# Calculate remaining trials: total desired minus already completed trials.
+remaining_trials = args.n_init + args.n_iter - 1
 study_path = os.path.join(save_dir, 'study.pkl')
 if os.path.exists(study_path):
     print("Resuming study from", study_path)
     study = joblib.load(study_path)
+    remaining_trials = remaining_trials - len(study.trials)
 else:
     study = optuna.create_study(
         directions=['minimize'],
@@ -106,9 +109,6 @@ else:
     for trial in init_trials:
         study.enqueue_trial(trial)
 
-# Calculate remaining trials: total desired minus already completed trials.
-target_trials = args.n_init + args.n_iter - 1
-remaining_trials = target_trials - len(study.trials)
 if remaining_trials > 0:
     study.optimize(optuna_obj, n_trials=remaining_trials, timeout=None)
 else:
@@ -116,3 +116,4 @@ else:
 
 # Save (or update) the study file
 joblib.dump(study, study_path)
+# %%
