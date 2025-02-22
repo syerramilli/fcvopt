@@ -5,6 +5,15 @@ from gpytorch.constraints import Interval
 from ..models.priors import BetaPrior
 
 class HammingKernel(Kernel):
+    '''Hamming kernel for a categorical input
+
+    The Hamming kernel is defined as:
+    .. math::
+        k(x_1,x_2) = 1  - \left(1 - \rho \right) \mathbb{1}_{x_1 \neq x_2}
+
+    where :math:`\rho` is the correlation parameter.
+    
+    '''
     has_lengthscale=False
     def __init__(self,**kwargs):
         super().__init__(has_lengthscale=False,**kwargs)

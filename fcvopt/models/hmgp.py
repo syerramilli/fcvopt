@@ -15,8 +15,24 @@ from gpytorch.models.exact_prediction_strategies import prediction_strategy
 from typing import List
 
 class HGP(GPR):
-    '''
-    HGP model
+    '''Hierarchical GP model for modeling the CV loss function
+
+    This model is a sum of a main GP `f`, that models the CV loss function, and
+    a delta GP that models the deviation of the individual fold holdout losses 
+    from the CV loss.
+
+    The model is defined as:
+    .. math::
+        y_j(x) = f(x) + \delta_j(x) + \epsilon_j(x)
+
+    where :math:`\delta_j(x)` is the deviation of the individual fold holdout losses
+    from the CV loss, and :math:`\epsilon_j(x)` is the observation noise.
+
+    Args:
+        train_x: training data with dimensions (N x (D + 1)) where the last column 
+            contains the fold indices
+        train_y: training targets with dimensions (N x 1)
+        warp_input: whether to apply input warping to the inputs. Default: False
     '''
     def __init__(
         self,
@@ -65,10 +81,27 @@ class HGP(GPR):
         return gpytorch.distributions.MultivariateNormal(mean_x,covar_x)
 
     def posterior(
-        self, X:torch.Tensor,observation_noise:bool=False,
+        self, X:torch.Tensor,
+        observation_noise:bool=False,
         posterior_transform=None,**kwargs
-    ):
-        '''Returns the posterior of f'''
+    ) -> GPyTorchPosterior:
+        '''Returns the posterior distribution of the CV loss at the input locations `X`
+
+        :note:: This does not return the posterior distribution of the individual fold
+            holdout losses.
+
+        Args:
+            X: input locations with dimensions (N x D). Note that this should not include
+                the fold indices.
+            observation_noise: whether to include the observation noise in the posterior.
+                We recommend setting this to False. Default: False
+            posterior_transform: a transform to apply to the posterior distribution.
+                Default: None
+            kwargs: additional keyword arguments to pass to the `posterior_transform`
+
+        Returns:
+            A `GPyTorchPosterior` object
+        '''
         self.eval()  # make sure model is in eval mode
         
         # input transforms are applied at `posterior` in `eval` mode, and at
