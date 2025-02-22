@@ -1,9 +1,14 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from skorch import NeuralNetRegressor,NeuralNetClassifier,NeuralNetBinaryClassifier
-from skorch.callbacks import GradientNormClipping, EarlyStopping, EpochScoring, LRScheduler
-from skorch.dataset import ValidSplit
+
+try:
+    from skorch import NeuralNetRegressor, NeuralNetClassifier
+    from skorch.callbacks import GradientNormClipping, EarlyStopping, EpochScoring, LRScheduler
+    from skorch.dataset import ValidSplit
+except ImportError:
+    raise ImportError('skorch must be installed to use the ResNetCVObj class')
+
 from sklearn.metrics import make_scorer
 from typing import List, Tuple, Optional, Dict
 
@@ -16,6 +21,24 @@ def make_normalization(normalization:str, input_dim:int):
     ](input_dim)
 
 class ResNetBlock(nn.Module):
+    '''A residual block for a feed forward neural network with dropout regularization for tabular data.
+
+    The residual block is defined as:
+    .. math::
+        x + \mathrm{Dropout}(\mathrm{Linear}(\mathrm{Dropout}(\mathrm{ReLU}(\mathrm{Linear}(\mathrm{Norm}(x))))))
+
+    where :math:`\mathrm{Norm}` can be either batch normalization or layer normalization.
+
+    See [Gorishniy et al. (2021)](https://proceedings.neurips.cc/paper_files/paper/2021/file/9d86d83f925f2149e9edb0ac3b49229c-Paper.pdf)
+    for more details.
+
+    Args:
+        input_dim: the last dimension of the input tensor
+        normalization: the normalization layer to use. Must be one of 'batchnorm' or 'layernorm'.
+        hidden_factor: the hidden size is computed as floor(`hidden_factor` * `input_dim`)
+        hidden_dropout: the dropout rate for the hidden layer
+        residual_dropout: the dropout rate for the residual connection
+    '''
     def __init__(
         self, 
         input_dim:int, 
@@ -41,6 +64,23 @@ class ResNetBlock(nn.Module):
         return x + self.ff(x)
 
 class TabularResNet(nn.Module):
+    '''Tabular ResNet model
+
+    See [Gorishniy et al. (2021)](https://proceedings.neurips.cc/paper_files/paper/2021/file/9d86d83f925f2149e9edb0ac3b49229c-Paper.pdf)
+    for more details.
+
+    :note: The model currently does not support categorical features. 
+
+    Args:
+        input_dim: the input dimension
+        output_dim: the output dimension
+        n_hidden: the number of hidden layers (default: 2)
+        layer_size: the size of each hidden layer (default: 64)
+        normalization: the normalization layer to use. Must be one of 'batchnorm' or 'layernorm'.
+        hidden_factor: the hidden size is computed as floor(`hidden_factor` * `input_dim`)
+        hidden_dropout: the dropout rate for the hidden layer
+        residual_dropout: the dropout rate for the residual connection
+    '''
     def __init__(
         self, 
         input_dim:int,
@@ -72,6 +112,18 @@ class TabularResNet(nn.Module):
 
 
 class ResNetCVObj(SklearnCVObj):
+    '''A cross-validation loss evaluator for ResNet models
+
+    :note: The network is constructed using the `skorch` library, that wraps PyTorch modules
+        into scikit-learn compatible estimators. The `skorch` library is not a dependency of
+        `fcvopt` and must be installed separately.
+        
+    Args:
+        max_epochs: maximum number of epochs to train the model (default: 100)
+        optimizer: the optimizer to use. Must be one of 'SGD', 'Adam', or 'RMSprop'.
+        **kwargs: additional keyword arguments to :class:`SklearnCVObj`. Do not pass 
+        the `estimator` argument here. 
+    '''
     def __init__(
         self,
         max_epochs:int=100,

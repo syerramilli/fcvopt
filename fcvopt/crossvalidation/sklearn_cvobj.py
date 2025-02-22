@@ -1,33 +1,63 @@
 import numpy as np
 import pandas as pd
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator
 from sklearn.metrics import make_scorer
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from joblib import Parallel,delayed
-from typing import Callable,List,Optional,Dict,Tuple
+from typing import Callable,List,Optional,Dict,Tuple, Union
 
 from ..crossvalidation.cvobjective import CVObjective
 
 class SklearnCVObj(CVObjective):
+    '''Cross-validation objective function for scikit-learn models
+
+    Args:
+        X: input data with dimensions (N x D)
+        y: target data with dimensions (N x 1)
+        estimator: A scikit-learn estimator object whose hyperparameters are to be optimized.
+            on the given data. If this is not a standard scikit-learn estimator, it must inherit
+            from `sklearn.base.BaseEstimator` and implement `fit` and `predict` (and `predict_proba` 
+            if `needs_proba` is True) methods.
+        task: task type. Must be one of 'regression', 'binary_classification', or
+            'multiclass_classification'. If the task is classification, `y` is internally
+            encoded using `sklearn.preprocessing.LabelEncoder`.
+        loss_metric: loss metric to minimize. Must be a function/callable that takes
+            in two arguments: y_true and y_pred and returns a scalar loss value.
+        needs_proba: whether the loss metric needs class probabilities. Relevant only
+            when `task` is 'binary_classification' or 'multiclass_classification'.
+        n_splits: number of splits for K-fold CV (default: 5)
+        n_repeats: number of repeats for K-fold CV (default: 5)
+        holdout: whether to perform holdout CV. If True, only the first
+            train-test split is used for evaluation. (default: False)
+        scale_output: whether to standardize the output for a regression task. Relevant
+            only when `task` is 'regression'. (default: False)
+        input_preprocessor: A scikit-learning transformer object that is used to preprocess
+            the input data. If not None, the transformer is learned separately for each
+            train-test split. (default: None)
+        stratified: whether to perform stratified CV for classification tasks. Relevant only
+            when `task` is 'binary_classification' or 'multiclass_classification'. (default: True)
+        num_jobs: number of jobs to run in parallel (default: 1)
+    '''
     def __init__(
         self,
-        estimator,
-        X, y, 
-        loss_metric,
+        estimator: BaseEstimator,
+        X:Union[np.ndarray,pd.DataFrame], 
+        y:Union[np.ndarray,pd.Series],
+        task:str,
+        loss_metric:Callable,
         needs_proba:bool=False, 
         n_splits=10, 
         n_repeats=1,
         holdout=False,
-        task='regression', 
         scale_output=False, 
         input_preprocessor=None,
         stratified=False, 
         num_jobs=1
     ):
         super().__init__(
-            X, y, loss_metric, n_splits=n_splits, n_repeats=n_repeats, 
-            holdout=holdout, task=task, scale_output=scale_output, 
+            X, y, task, loss_metric, n_splits=n_splits, n_repeats=n_repeats, 
+            holdout=holdout, scale_output=scale_output, 
             input_preprocessor=input_preprocessor, 
             stratified=stratified,num_jobs=num_jobs
         )
@@ -35,7 +65,7 @@ class SklearnCVObj(CVObjective):
         self.estimator = estimator
         self.needs_proba = needs_proba
     
-    def construct_model(self,params):
+    def construct_model(self, params:Dict) -> BaseEstimator:
         return clone(self.estimator).set_params(**params)
     
     def _fit_and_test(self, params, train_index, test_index):
@@ -67,9 +97,26 @@ class SklearnCVObj(CVObjective):
 
 
 class XGBoostCVObjEarlyStopping(SklearnCVObj):
+    '''Cross-validation objective function for XGBoost models with early stopping
+
+    This uses the scikit-learn API of XGBoost. To implement early stopping, the training
+    set within each train-test split is further split into a training and validation set 
+    (with stratification if `stratified` is True and the taskis classification). The loss 
+    metric on the validation set is used as the early stopping criterion.
+
+    Args:
+        early_stopping_rounds: number of rounds to wait for the loss to improve before
+            stopping the training
+        validation_split: fraction of the training set to use as the validation set for
+            early stopping (default: 0.1)
+        **kwargs: additional keyword arguments to `SklearnCVObj`. Note that the `estimator`
+            argument must be  `xgboost.XGBRegressor` or a `xgboost.XGBClassifier` object.
+    '''
     def __init__(self, 
-        early_stopping_rounds:int,validation_split:float=0.1,
-        **kwargs):
+        early_stopping_rounds:int,
+        validation_split:float=0.1,
+        **kwargs
+        ):
         super().__init__(**kwargs)
         self.early_stopping_rounds=early_stopping_rounds
         self.validation_split = validation_split

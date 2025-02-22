@@ -10,6 +10,27 @@ from typing import List, Tuple, Optional, Dict
 from ..crossvalidation.sklearn_cvobj import SklearnCVObj
 
 class MLP(nn.Module):
+    '''A feed forward neural network with dropout regularization for tabular data
+
+    Args:
+        h_sizes: a list of hidden layer sizes. The length of this list determines the
+            number of hidden layers. Must have atleast one element.
+        dropouts: a list of dropout rates for each hidden layer. Must have the same length
+            as `h_sizes`.
+        output_dim: the output dimension of the network. For regression and binary classification,
+            this is 1. For multiclass classification, this is the number of classes.
+        numerical_index: a list of indices of the numerical features in the input data. If None,
+            all features are assumed to be numerical.
+        activation: the activation function to use for the hidden layers. Must be one of 'ReLU',
+            'SELU', or 'Sigmoid'. If 'SELU', the network is initialized using the method described
+            in https://arxiv.org/abs/1706.02515, and the dropout layers are replaced with alpha
+            dropout layers. (default: 'Sigmoid')
+        categorical_index: a list of indices of the categorical features in the input data. If not 
+            None, the categorical features are first embedded using an embedding layer. If None, all
+            features are assumed to be numerical. (default: None)
+        num_levels_per_var: a list of the number of levels for each categorical variable. Must have
+            the same length as `categorical_index`. (default: None)
+    '''
     def __init__(
         self,
         h_sizes:List[int],
@@ -69,6 +90,35 @@ class MLP(nn.Module):
         return self.output(x)
 
 class MLPCVObj(SklearnCVObj):
+    '''A cross-validation object for a feed forward neural network with dropout regularization
+    for tabular data.
+
+    The number of hidden layers, given by `num_hidden`, is fixed. However, the size of each hidden
+    layer and the corresponding dropout rate are expected to be hyperparameters. 
+
+    :note: The network is constructed using the `skorch` library, that wraps PyTorch modules
+        into scikit-learn compatible estimators. The `skorch` library is not a dependency of
+        `fcvopt` and must be installed separately.
+
+    Args:
+        num_hidden: number of hidden layers (default: 1)
+        activation: the activation function to use for the hidden layers. Must be one of 'ReLU',
+            'SELU', or 'Sigmoid'. If 'SELU', the network is initialized using the method described
+            in https://arxiv.org/abs/1706.02515, and the dropout layers are replaced with alpha
+            dropout layers. (default: 'Sigmoid')
+        max_epochs: maximum number of epochs for training (default: 100)
+        optimizer: the optimizer to use for training. Must be one of 'SGD', 'Adam', or 'RMSprop'.
+            (default: 'SGD')
+        numerical_index: a list of indices of the numerical features in the input data. If None,
+            all features are assumed to be numerical.
+        categorical_index: a list of indices of the categorical features in the input data. If not 
+            None, the categorical features are first embedded using an embedding layer. If None, all
+            features are assumed to be numerical. (default: None)
+        num_levels_per_var: a list of the number of levels for each categorical variable. Must have
+            the same length as `categorical_index`. (default: None)
+        kwargs: additional keyword arguments to pass to the `SklearnCVObj` constructor. Do not pass
+            the `estimator` argument here.
+    '''
     def __init__(
         self,
         num_hidden:int=1,
