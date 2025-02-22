@@ -83,8 +83,6 @@ config.add_hyperparameters([
 config.generate_indices()
 
 #%%
-optuna_obj = get_optuna_objective(cvobj, config)
-
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
 init_trials = [conf.get_dictionary() for conf in config.latinhypercube_sample(args.n_init)]
@@ -95,15 +93,26 @@ sampler = optuna.samplers.TPESampler(
     n_startup_trials=args.n_init
 )
 
-study = optuna.create_study(
-    directions=['minimize'],sampler=sampler,
-    study_name=f'xgb_{args.dataset}_{args.seed}'
-)
+study_path = os.path.join(save_dir, 'study.pkl')
+if os.path.exists(study_path):
+    print("Resuming study from", study_path)
+    study = joblib.load(study_path)
+else:
+    study = optuna.create_study(
+        directions=['minimize'],
+        sampler=sampler,
+        study_name=f'xgb_{args.dataset}_{args.seed}'
+    )
+    for trial in init_trials:
+        study.enqueue_trial(trial)
 
-for trial in init_trials:
-    study.enqueue_trial(trial)
+# Calculate remaining trials: total desired minus already completed trials.
+target_trials = args.n_init + args.n_iter - 1
+remaining_trials = target_trials - len(study.trials)
+if remaining_trials > 0:
+    study.optimize(optuna_obj, n_trials=remaining_trials, timeout=None)
+else:
+    print("Study already reached the target number of trials.")
 
-study.optimize(optuna_obj, n_trials=args.n_init+args.n_iter-1, timeout=None)
-
-# save results to file
-joblib.dump(study,os.path.join(save_dir,'study.pkl'))
+# Save (or update) the study file
+joblib.dump(study, study_path)
