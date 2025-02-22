@@ -8,7 +8,7 @@ from botorch.sampling import SobolQMCNormalSampler
 
 from .fcvopt import FCVOpt
 from ..models.gpregression import GPR
-from ..models.multitaskgp import MultitaskGPModel
+from ..models.multitaskgp import MultitaskGPModel, MultiTaskGPConstantCorrModel
 from ..fit.mll_scipy import fit_model_scipy
 
 from ..configspace import ConfigurationSpace
@@ -36,6 +36,7 @@ class MTBOCVOpt(FCVOpt):
         fold_initialization:str='random',
         minimize:bool=True,
         fold_selection_criterion:str='single-task-ei',
+        constant_task_corr:bool=False,
         **kwargs
     ):
         super().__init__(
@@ -46,12 +47,20 @@ class MTBOCVOpt(FCVOpt):
             minimize=minimize,acq_function=None,
             **kwargs
         )
+        self.constant_task_corr = constant_task_corr
     
     def _construct_model(self):
+        if self.constant_task_corr:
+            return MultiTaskGPConstantCorrModel(
+                train_x = (self.train_x,self.train_folds),
+                train_y = self.sign_mul*self.train_y,
+                num_tasks=self.n_folds
+            ).double()
+
         return MultitaskGPModel(
             train_x = (self.train_x,self.train_folds),
             train_y = self.sign_mul*self.train_y,
-            num_tasks=self.n_folds,
+            num_tasks=self.n_folds
         ).double()
     
     def _acquisition(self) -> None:
@@ -99,7 +108,7 @@ class MTBOCVOpt(FCVOpt):
         if self.fold_selection_criterion == 'random':
             self.folds_cand.append(
                 np.random.choice(
-                    fold_idxs,size=num_candidates,replace=True
+                    fold_idxs,size=1,replace=True
                 ).tolist()
             )
         elif self.fold_selection_criterion == 'single-task-ei':

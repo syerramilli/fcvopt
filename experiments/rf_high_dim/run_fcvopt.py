@@ -24,7 +24,7 @@ parser.add_argument('--save_dir',type=str,required=True)
 parser.add_argument(
     '--acq',
     type=str,required=True,
-    choices=['lcb','kg','lcb_batch','kg_batch','mtbo']
+    choices=['lcb','kg','lcb_batch','kg_batch','mtbo', 'mtbo_constant']
 )
 parser.add_argument('--n_init',type=int,required=True)
 parser.add_argument('--n_iter',type=int,required=True)
@@ -90,7 +90,8 @@ config.generate_indices()
 
 #%%
 set_seed(args.seed)
-if args.acq == 'mtbo':
+if args.acq.startswith('mtbo'):
+    constant_task_corr = args.acq == 'mtbo_constant'
     opt = MTBOCVOpt(
         obj=cvobj.cvloss,
         n_folds=cvobj.cv.get_n_splits(),
@@ -99,6 +100,7 @@ if args.acq == 'mtbo':
         save_iter=10,
         save_dir = save_dir,
         verbose=1,
+        constant_task_corr=constant_task_corr
     )
 else:
     acq_args = {}

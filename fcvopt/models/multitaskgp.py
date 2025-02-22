@@ -5,7 +5,7 @@ from gpytorch.constraints import GreaterThan,Positive,Interval
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.models.utils import gpt_posterior_settings
 from .gpregression import GPR
-from ..kernels import MultiTaskKernel
+from ..kernels import MultiTaskKernel, HammingKernel
 
 from typing import List
 
@@ -110,3 +110,16 @@ class MultitaskGPModel(GPR):
             return out_mean,out_std
             
         return out_mean
+    
+class MultiTaskGPConstantCorrModel(MultitaskGPModel):
+    def __init__(self, train_x, train_y, num_tasks, warp_input = False):
+        super().__init__(train_x, train_y, num_tasks, warp_input)
+        self.task_covar_module = HammingKernel()
+
+    def reset_parameters(self):
+        # sample the hyperparameters from their respective priors
+        # Note: samples in place
+        for _,module,prior,closure,setting_closure in self.named_priors():
+            if not closure(module).requires_grad:
+                continue
+            setting_closure(module,prior.expand(closure(module).shape).sample())

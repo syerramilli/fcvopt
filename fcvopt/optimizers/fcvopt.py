@@ -8,6 +8,7 @@ from ..models import HGP
 from ..configspace import ConfigurationSpace
 from ..util.samplers import stratified_sample
 from typing import Callable,List,Union,Tuple,Optional,Dict
+import joblib
 
 class FCVOpt(BayesOpt):
     def __init__(
