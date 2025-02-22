@@ -8,11 +8,10 @@ import optuna
 from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float,Integer,Categorical
 
-from smac import HyperparameterOptimizationFacade, Scenario
-from smac.initial_design import AbstractInitialDesign
-
 from fcvopt.crossvalidation.sklearn_cvobj import SklearnCVObj
 from fcvopt.crossvalidation.optuna_obj import get_optuna_objective
+from fcvopt.util.samplers import stratified_sample
+
 from sklearn.metrics import roc_auc_score
 from sklearn.ensemble import RandomForestClassifier
 
@@ -82,11 +81,12 @@ config.add_hyperparameters([
 config.generate_indices()
 
 #%%
-optuna_obj = get_optuna_objective(cvobj, config)
 
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
 init_trials = [conf.get_dictionary() for conf in config.latinhypercube_sample(args.n_init)]
+start_fold_idxs = stratified_sample(10, args.n_init).tolist()
+optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs)
 
 sampler = optuna.samplers.TPESampler(
     n_startup_trials=args.n_init
