@@ -29,7 +29,7 @@ parser.add_argument('--n_repeats',type=int,default=1)
 parser.add_argument('--seed',type=int,default=123)
 args = parser.parse_args()
 
-save_dir = os.path.join(args.save_dir,args.dataset,'optuna_corr','seed_%d'%args.seed)
+save_dir = os.path.join(args.save_dir,args.dataset,'optuna','seed_%d'%args.seed)
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
@@ -116,4 +116,3 @@ else:
 
 # Save (or update) the study file
 joblib.dump(study, study_path)
-# %%
