@@ -1,4 +1,4 @@
-torch==2.2
+torch==2.2.0
 gpytorch>=1.9,<=1.10
 botorch>=0.8
 ConfigSpace>=0.6,<0.7
