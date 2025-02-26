@@ -2,7 +2,7 @@
 
 This repository containts code to reproduce the results from the paper "Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms".
 
-The experiements are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files. 
+The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files. 
 
 ## Installation 
 Prior to running the experiments, the `fcvopt` package must be installed. This can be done through pip:
@@ -14,7 +14,7 @@ pip install .[experiments]
 This will also install the dependencies, along with the additional packages required to run the experiments.
 
 **Note:**
-The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the `pyrfr` package. While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler installed on your system. 
+The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the building and compliling the `pyrfr` package While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler installed on your system. 
 
 ## Setting up virtual environments/ containers
 
@@ -43,7 +43,7 @@ To run the container with the files in the `experiments` folder mounted, run the
 docker run -v <path_to_experiments_folder>:/app/experiments -it fcvopt_test
 ```
 
-Replace <path_to_experiments_folder> with the absolute path to your local experiments directory. This will launch the container and open a bash shell. The experiments directory will be mounted in the container at `/app/experiments`. 
+Replace <path_to_experiments_folder> with the **absolute path** to your local experiments directory. This will launch the container and open a bash shell. The experiments directory will be mounted in the container at `/app/experiments`. 
 
 Once inside the container, you can navigate to the /app/experiments directory and run the experiments as needed. For example:
 
