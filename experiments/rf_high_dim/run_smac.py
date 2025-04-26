@@ -56,7 +56,7 @@ X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=False
 #%% define estimator and cross-validation objective
 set_seed(args.seed)
 cvobj = SklearnCVObj(
-    estimator=RandomForestClassifier(n_estimators=500),
+    estimator=RandomForestClassifier(n_estimators=500, n_jobs=-1),
     X=X,y=y,
     loss_metric=metric,
     needs_proba=True,
