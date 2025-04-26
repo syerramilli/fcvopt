@@ -20,7 +20,7 @@ The experiments involving the SMAC algorithm require the `smac` library, which i
 
 ### Virtual environment
 
-The bash script file `venv_setup.sh` can be used to create a virtual environment and install the required packages. Ensure you have Python 3.8 or later installed.
+The bash script file `venv_setup.sh` can be used to create a virtual environment and install the required packages. Ensure you have Python >= 3.8 and <=3.12 installed.
 
 To run the script, use the following commands:
 
