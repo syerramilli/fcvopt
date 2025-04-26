@@ -123,6 +123,7 @@ else:
     )
 
 training_path = os.path.join(save_dir,'model_train.pt')
+iters_to_run = args.n_iter
 if os.path.exists(training_path):
     # resume progress from last time
     # load saved progress
@@ -141,9 +142,13 @@ if os.path.exists(training_path):
 
     # run the remaining iterations
     num_iters_completed = len(opt.f_inc_est)
-    out = opt.run(args.n_iter-num_iters_completed)
-else:
-    out = opt.run(args.n_iter,n_init=args.n_init)
+    iters_to_run = args.n_iter-num_iters_completed
+    
 
-# save to disk
-opt.save_to_file(save_dir)
+if iters_to_run > 0:
+    # run the optimization
+    out = opt.run(iters_to_run, n_init=args.n_init)
+    # save to disk
+    opt.save_to_file(save_dir)
+else:
+    print(f'Already completed {args.n_iter} iterations, skipping...')
