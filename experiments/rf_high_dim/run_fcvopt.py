@@ -55,7 +55,7 @@ DATA_IDS = {
 }
 
 
-X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=False)
+X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=False, parser='auto')
 
 #%% define estimator and cross-validation objective
 set_seed(1)
@@ -98,7 +98,8 @@ if args.acq == 'mtbo':
         config=config,
         save_iter=10,
         save_dir = save_dir,
-        verbose=1
+        verbose=1,
+        n_jobs=-1
     )
 else:
     acq_args = {}
@@ -117,6 +118,7 @@ else:
         save_iter=10,
         save_dir = save_dir,
         verbose=1,
+        n_jobs=-1
         **acq_args
     )
 

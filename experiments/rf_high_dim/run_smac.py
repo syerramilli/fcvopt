@@ -51,7 +51,7 @@ DATA_IDS = {
 }
 
 
-X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=False)
+X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=False,parser='auto')
 
 #%% define estimator and cross-validation objective
 set_seed(args.seed)
