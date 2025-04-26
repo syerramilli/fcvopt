@@ -92,15 +92,25 @@ sampler = optuna.samplers.TPESampler(
     n_startup_trials=args.n_init
 )
 
-study = optuna.create_study(
-    directions=['minimize'],sampler=sampler,
-    study_name=f'rf_{args.dataset}_{args.seed}'
-)
+remaining_trials = args.n_init + args.n_iter - 1
+study_path = os.path.join(save_dir, 'study.pkl')
+if os.path.exists(study_path):
+    print("Resuming study from", study_path)
+    study = joblib.load(study_path)
+    remaining_trials = remaining_trials - len(study.trials)
+else:
+    study = optuna.create_study(
+        directions=['minimize'],sampler=sampler,
+        study_name=f'rf_{args.dataset}_{args.seed}'
+    )
 
-for trial in init_trials:
-    study.enqueue_trial(trial)
+    for trial in init_trials:
+        study.enqueue_trial(trial)
 
-study.optimize(optuna_obj, n_trials=args.n_init+args.n_iter-1, timeout=None)
+if remaining_trials > 0:
+    study.optimize(optuna_obj, n_trials=remaining_trials, timeout=None)
+else:
+    print("Study already reached the target number of trials.")
 
 # save results to file
 joblib.dump(study,os.path.join(save_dir,'study.pkl'))

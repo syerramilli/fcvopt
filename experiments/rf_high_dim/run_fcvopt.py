@@ -122,6 +122,28 @@ else:
         **acq_args
     )
 
-out = opt.run(args.n_iter,n_init=args.n_init)
+training_path = os.path.join(save_dir,'model_train.pt')
+if os.path.exists(training_path):
+    # resume progress from last time
+    # load saved progress
+    training = torch.load(os.path.join(save_dir,'model_train.pt'))
+    for k,v in training.items():
+        setattr(opt,k,v)
+
+    opt.train_confs = [
+        config.get_conf_from_array(x.numpy()) for x in training['train_x']
+    ]
+
+    # load stat objects
+    stats = joblib.load(os.path.join(save_dir,'stats.pkl'))
+    for k,v in stats.items():
+        setattr(opt,k,v)
+
+    # run the remaining iterations
+    num_iters_completed = len(opt.f_inc_est)
+    out = opt.run(args.n_iter-num_iters_completed)
+else:
+    out = opt.run(args.n_iter,n_init=args.n_init)
+
 # save to disk
 opt.save_to_file(save_dir)
