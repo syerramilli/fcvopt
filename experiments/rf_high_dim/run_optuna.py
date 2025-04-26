@@ -6,7 +6,7 @@ import random
 import optuna
 
 from fcvopt.configspace import ConfigurationSpace
-from ConfigSpace import Float,Integer,Categorical
+from ConfigSpace import Float,Integer
 
 from fcvopt.crossvalidation.sklearn_cvobj import SklearnCVObj
 from fcvopt.crossvalidation.optuna_obj import get_optuna_objective
@@ -84,7 +84,7 @@ config.generate_indices()
 
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
-init_trials = [dict(config) for conf in config.latinhypercube_sample(args.n_init)]
+init_trials = [dict(conf) for conf in config.latinhypercube_sample(args.n_init)]
 start_fold_idxs = stratified_sample(10, args.n_init).tolist()
 optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs)
 

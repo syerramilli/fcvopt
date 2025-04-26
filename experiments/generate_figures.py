@@ -42,7 +42,7 @@ sns.set_palette('tab10')
 
 config = ConfigurationSpace(seed=1234)
 if args.model == 'rf':
-    config.add_hyperparameters([
+    config.add([
         Integer('max_depth',bounds=(1,12),log=True),
         Float('min_impurity_decrease',bounds=(1e-8,10),log=True),
         Float('max_features',bounds=(0.005,0.5),log=True),
@@ -53,17 +53,17 @@ if args.model == 'rf':
     model_string = 'RF'
 elif args.model == 'mlp':
     n_hidden = 2
-    config.add_hyperparameters([
+    config.add([
         Integer('hsize%d'%i,bounds=(8,256),log=True) for i in range(n_hidden)
     ])
 
     # dropouts
-    config.add_hyperparameters([
+    config.add([
         Float('dropout%d'%i,bounds=(0,0.5)) for i in range(n_hidden)
     ])
 
     # remaining hyperparameters
-    config.add_hyperparameters([
+    config.add([
         Float('lr',bounds=(1e-5,0.1),log=True),
         Integer('batch_size',bounds=(32,2048),log=True),
         Float('weight_decay',bounds=(1e-8,1),log=True),
@@ -74,7 +74,7 @@ elif args.model == 'mlp':
     model_string = 'MLP'
 
 elif args.model == 'xgb':
-    config.add_hyperparameters([
+    config.add([
         Float('learning_rate',bounds=(1e-5,0.95),log=True),
         Integer('max_depth',bounds=(1,12),log=True),
         Integer('max_leaves',bounds=(2,1024),log=True),
@@ -89,7 +89,7 @@ elif args.model == 'xgb':
     model_string = 'XGboost'
 
 elif args.model == 'tab_resnet':
-    config.add_hyperparameters([
+    config.add([
         Integer('n_hidden', bounds=(1, 6), log=True),
         Integer('layer_size', bounds=(8, 512), log=True),
         Categorical('normalization', ['batchnorm', 'layernorm']),
