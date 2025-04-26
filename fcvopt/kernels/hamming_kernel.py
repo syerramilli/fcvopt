@@ -5,7 +5,8 @@ from gpytorch.constraints import Interval
 from ..models.priors import BetaPrior
 
 class HammingKernel(Kernel):
-    '''Hamming kernel for a categorical input
+    r'''
+    Hamming kernel for a categorical input
 
     The Hamming kernel is defined as:
     .. math::

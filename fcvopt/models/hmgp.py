@@ -15,7 +15,8 @@ from gpytorch.models.exact_prediction_strategies import prediction_strategy
 from typing import List
 
 class HGP(GPR):
-    '''Hierarchical GP model for modeling the CV loss function
+    r'''
+    Hierarchical GP model for modeling the CV loss function
 
     This model is a sum of a main GP `f`, that models the CV loss function, and
     a delta GP that models the deviation of the individual fold holdout losses 
