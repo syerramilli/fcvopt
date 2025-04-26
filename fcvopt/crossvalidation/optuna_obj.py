@@ -23,7 +23,7 @@ def get_optuna_objective(cvobj:CVObjective, config:ConfigurationSpace,
     '''
     def optuna_obj(trial) -> float:
         optuna_config = {} 
-        for hyp in config.get_hyperparameters():
+        for hyp in list(config.values()):
             if isinstance(hyp,CSH.UniformFloatHyperparameter):
                 optuna_config[hyp.name] = trial.suggest_float(hyp.name,hyp.lower,hyp.upper,log=hyp.log)
             elif isinstance(hyp,CSH.UniformIntegerHyperparameter):
