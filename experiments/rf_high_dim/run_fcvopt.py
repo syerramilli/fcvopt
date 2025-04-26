@@ -118,7 +118,7 @@ else:
         save_iter=10,
         save_dir = save_dir,
         verbose=1,
-        n_jobs=-1
+        n_jobs=-1,
         **acq_args
     )
 
