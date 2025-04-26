@@ -6,6 +6,7 @@ import gpytorch
 import warnings
 import joblib
 
+from .optimize_acq import _optimize_botorch_acqf
 from ..models import GPR
 from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
@@ -13,12 +14,16 @@ from ..configspace import ConfigurationSpace
 from botorch.acquisition import (
     ExpectedImprovement,qExpectedImprovement,
     UpperConfidenceBound, qUpperConfidenceBound,
-    qKnowledgeGradient, PosteriorMean
+    qKnowledgeGradient
 )
 from botorch.optim import optimize_acqf
+from botorch.optim.initializers import (
+    gen_batch_initial_conditions,
+    gen_one_shot_kg_initial_conditions,
+)
 from botorch.sampling import SobolQMCNormalSampler
 
-from typing import Callable,List,Union,Tuple,Optional,Dict
+from typing import Callable,List,Optional,Dict
 from collections import OrderedDict
 from copy import deepcopy
 
@@ -49,7 +54,9 @@ class BayesOpt:
         self.verbose=verbose
         self.save_iter = save_iter
         self.save_dir = save_dir
-        self.n_jobs = 1
+        if not isinstance(n_jobs, int) or (n_jobs < 1 and n_jobs != -1):
+            raise ValueError(f"n_jobs must be -1 (all cores) or a positive integer; got {n_jobs!r}")
+        self.n_jobs = n_jobs
 
         # initialize objects
         self.model = None
@@ -222,46 +229,32 @@ class BayesOpt:
         ).double()
     
     def _acquisition(self) -> None:
-        preprocess_time = 0
+        sampler = SobolQMCNormalSampler(128)
         if self.acq_function == 'EI':
             best_f = -self.f_inc_est[-1] if self.minimize else self.f_inc_est[-1]
-
             if self.batch_acquisition:
-                sampler = SobolQMCNormalSampler(512)
                 acqobj = qExpectedImprovement(self.model,best_f,sampler)
             else:
                 acqobj = ExpectedImprovement(self.model, best_f)
         elif self.acq_function == 'LCB':
             if self.batch_acquisition:
-                sampler = SobolQMCNormalSampler(512)
-                acqobj = qUpperConfidenceBound(self.model, torch.tensor(4.))
+                acqobj = qUpperConfidenceBound(self.model, torch.tensor(4.), sampler)
             else:
                 acqobj = UpperConfidenceBound(self.model, torch.tensor(4.))
         elif self.acq_function == 'KG':
-            # first must find the current best posterior mean 
-            start_time = time.time()
-            # _, max_pmean = optimize_acqf(
-            #     acq_function=PosteriorMean(self.model),
-            #     bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
-            #     q=1,
-            #     num_restarts=10,
-            #     raw_samples=128,
-            #     options={"batch_limit": 5, "maxiter": 200},
-            # )
-            # preprocess_time = time.time()-start_time
-            max_pmean = None
-            acqobj = qKnowledgeGradient(self.model,current_value=max_pmean,num_fantasies=16)
+            acqobj = qKnowledgeGradient(self.model, current_value=None, num_fantasies=16)
 
         start_time = time.time()
-        new_x, max_acq = optimize_acqf(
-            acqobj, 
-            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
+        new_x, max_acq = _optimize_botorch_acqf(
+            acq_function=acqobj,
+            d=self.train_x.shape[-1],
             q=1 if not self.batch_acquisition else self.acquisition_q,
-            num_restarts=10 if self.acq_function == 'KG' else 20, # KG is much more expensive
-            raw_samples=128,
-            options={"batch_limit": 5, "maxiter": 500},
+            num_restarts = 10 if self.acq_function == 'KG' else 20,
+            n_jobs=self.n_jobs,
+            raw_samples=128
         )
+
         end_time = time.time()
-        self.acqopt_time.append(preprocess_time + end_time-start_time)
+        self.acqopt_time.append(end_time-start_time)
         self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
         self.acq_vec.append(-max_acq.item() if self.acq_function =='LCB' else max_acq.item())

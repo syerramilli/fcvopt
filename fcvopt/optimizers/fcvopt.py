@@ -1,6 +1,4 @@
 import numpy as np
-import os 
-import time
 import torch
 from .bayes_opt import BayesOpt
 from ..models import HGP

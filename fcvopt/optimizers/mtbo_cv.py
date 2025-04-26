@@ -1,19 +1,16 @@
 import numpy as np
-import os 
 import time
 import torch
 from botorch.acquisition import ExpectedImprovement
-from botorch.optim import optimize_acqf
-from botorch.sampling import SobolQMCNormalSampler
 
+from .optimize_acq import _optimize_botorch_acqf
 from .fcvopt import FCVOpt
 from ..models.gpregression import GPR
 from ..models.multitaskgp import MultitaskGPModel, MultiTaskGPConstantCorrModel
 from ..fit.mll_scipy import fit_model_scipy
 
 from ..configspace import ConfigurationSpace
-from ..util.samplers import stratified_sample
-from typing import Callable,List,Union,Tuple,Optional,Dict
+from typing import Callable
 
 class SingleTaskExpectedImprovement(ExpectedImprovement):
     def __init__(self,model:MultitaskGPModel,task_idx:int,best_task:float,**kwargs):
@@ -91,12 +88,13 @@ class MTBOCVOpt(FCVOpt):
 
         # optimize EI on the average of tasks
         acqobj = ExpectedImprovement(new_model,best_f=new_train_y.max())
-        new_x, max_acq = optimize_acqf(
-            acqobj, 
-            bounds=torch.tensor([[0.0] * self.train_x.shape[-1], [1.0] * self.train_x.shape[-1]]).double(),
+        new_x, max_acq = _optimize_botorch_acqf(
+            acq_function=acqobj,
+            d=self.train_x.shape[-1],
             q=1,
-            num_restarts=20,
-            raw_samples=200
+            num_restarts = 20,
+            n_jobs=self.n_jobs,
+            raw_samples=128
         )
         self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
         self.acq_vec.append(max_acq.item())
