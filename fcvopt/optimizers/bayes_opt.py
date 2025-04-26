@@ -169,7 +169,7 @@ class BayesOpt:
     
     def _evaluate(self,conf,**kwargs):
         start_time = time.time()
-        y = self.obj(conf.get_dictionary(),**kwargs)
+        y = self.obj(dict(conf),**kwargs)
         eval_time = time.time()-start_time
         return conf.get_array(),y,eval_time
 

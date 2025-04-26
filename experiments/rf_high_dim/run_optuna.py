@@ -71,7 +71,7 @@ cvobj = SklearnCVObj(
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Integer('max_depth',bounds=(1,12),log=True),
     Float('min_impurity_decrease',bounds=(1e-8,10),log=True),
     Float('max_features',bounds=(0.005,0.5),log=True),
@@ -84,7 +84,7 @@ config.generate_indices()
 
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
-init_trials = [conf.get_dictionary() for conf in config.latinhypercube_sample(args.n_init)]
+init_trials = [dict(config) for conf in config.latinhypercube_sample(args.n_init)]
 start_fold_idxs = stratified_sample(10, args.n_init).tolist()
 optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs)
 

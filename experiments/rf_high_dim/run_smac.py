@@ -69,7 +69,7 @@ cvobj = SklearnCVObj(
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Integer('max_depth',bounds=(1,12),log=True),
     Float('min_impurity_decrease',bounds=(1e-8,10),log=True),
     Float('max_features',bounds=(0.005,0.5),log=True),
@@ -82,7 +82,7 @@ def cvloss(config,seed:int=0) -> float:
     rng  = np.random.default_rng(seed=seed)
     fold_idxs = rng.choice(len(cvobj.train_test_splits))
     
-    return cvobj.cvloss(params=config.get_dictionary(),fold_idxs=[fold_idxs])
+    return cvobj.cvloss(params=dict(config),fold_idxs=[fold_idxs])
 
 
 set_seed(args.seed)

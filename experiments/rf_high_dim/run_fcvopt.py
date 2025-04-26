@@ -80,7 +80,7 @@ if 'batch' in args.acq:
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Integer('max_depth',bounds=(1,12),log=True),
     Float('min_impurity_decrease',bounds=(1e-8,10),log=True),
     Float('max_features',bounds=(0.005,0.5),log=True),
