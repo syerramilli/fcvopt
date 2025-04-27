@@ -208,21 +208,26 @@ def fit_model_scipy(
         # wrap objective
         lik_i = MLLObjective(model_i, add_prior)
         # optimize
-        with gptsettings.fast_computations(log_prob=False):
-            res = minimize(
-                fun = lik_i.fun,
-                x0 = lik_i.pack_parameters(),
-                args=(True),
-                method = 'L-BFGS-B',
-                bounds=None,
-                jac=True,
-                options=defaults
-            )
-        # unpack best state
-        best_state = None
-        if isinstance(res, OptimizeResult):
-            best_state = lik_i.unpack_parameters(res.x)
+        res, best_state = None, None
+        try:
+            with gptsettings.fast_computations(log_prob=False):
+                res = minimize(
+                    fun = lik_i.fun,
+                    x0 = lik_i.pack_parameters(),
+                    args=(True),
+                    method = 'L-BFGS-B',
+                    bounds=None,
+                    jac=True,
+                    options=defaults
+                )
+            if isinstance(res, OptimizeResult):
+                best_state = lik_i.unpack_parameters(res.x)
+                
+        except Exception as e:
+            res = e
+
         return res, best_state
+        
 
     # Run all restarts via joblib
     outputs = Parallel(n_jobs=n_jobs)(
