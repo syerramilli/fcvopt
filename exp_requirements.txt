@@ -1,4 +1,4 @@
 matplotlib>=3.7.0,<3.8.0
 seaborn>=0.12.2
-smac==2.0.0
+smac==2.2.0
 optuna>=3.6.0,<4.0.0
