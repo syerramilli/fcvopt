@@ -190,7 +190,7 @@ def fit_model_scipy(
 
     # default options
     defaults = {
-        'ftol':1e-6,'gtol':1e-5,'maxfun':500,'maxiter':200
+        'ftol':1e-6,'gtol':1e-5,'maxfun':1000,'maxiter':500
     }
     if len(options) > 0:
         for key in options.keys():
@@ -222,7 +222,7 @@ def fit_model_scipy(
                 )
             if isinstance(res, OptimizeResult):
                 best_state = lik_i.unpack_parameters(res.x)
-                
+
         except Exception as e:
             res = e
 
