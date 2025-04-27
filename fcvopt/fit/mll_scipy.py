@@ -1,11 +1,12 @@
 import torch
 import numpy as np
 from gpytorch import settings as gptsettings
-from scipy.optimize import minimize,OptimizeResult
+from scipy.optimize import minimize, OptimizeResult
 from collections import OrderedDict
 from functools import reduce
-from typing import Dict,List,Tuple,Optional,Union
+from typing import Dict, List, Tuple, Optional, Union
 from copy import deepcopy
+from joblib import Parallel, delayed
 
 def marginal_log_likelihood(model,add_prior:bool):
     output = model(*model.train_inputs)
@@ -22,13 +23,28 @@ def marginal_log_likelihood(model,add_prior:bool):
     return out
 
 class MLLObjective:
-    """Helper class that wraps MLE/MAP objective function to be called by scipy.optimize.
-
-    :param model: A :class:`..models.GPR` instance whose likelihood/posterior is to be 
-        optimized.
-    :type model: models.GPR
     """
-    def __init__(self,model,add_prior=True):
+    Wrapper for the maximum (log-)likelihood or log-posterior objective
+    of a GP model, suitable for SciPy optimization.
+
+    Parameters
+    ----------
+    model : models.GPR
+        A Gaussian process model whose hyperparameters will be optimized.
+    add_prior : bool, optional
+        If True, include the log-prior contributions in the objective.
+        Default is True.
+
+    Attributes
+    ----------
+    model : same as input
+        The GP model instance.
+    add_prior : bool
+        Whether to include priors in log-likelihood.
+    param_shapes : OrderedDict
+        Shapes of each parameter tensor, to pack/unpack vectors.
+    """
+    def __init__(self, model, add_prior: bool = True):
         self.model = model
         self.add_prior = add_prior
 
@@ -43,28 +59,35 @@ class MLLObjective:
                     self.param_shapes[n] = parameters[n].size()
                 else:
                     self.param_shapes[n] = torch.Size([1])
-    
-    def pack_parameters(self) -> np.ndarray:
-        """Returns the current hyperparameters in vector form for the scipy optimizer
 
-        :return Current hyperparameters in a 1-D array representation
-        :rtype: np.ndarray
+    def pack_parameters(self) -> np.ndarray:
+        """
+        Pack model parameters into a flat numpy array.
+
+        Returns
+        -------
+        x : np.ndarray
+            Flattened parameter vector.
         """
         parameters = OrderedDict([
             (n,p) for n,p in self.model.named_parameters() if p.requires_grad
         ])
         
         return np.concatenate([parameters[n].data.numpy().ravel() for n in parameters])
-    
-    def unpack_parameters(self, x:np.ndarray) -> torch.Tensor:
-        """Convert hyperparameters specifed as a 1D array to a named parameter dictionary
-        that can be imported by the model
 
-        :param x: Hyperparameters in flattened vector form
-        :type x: np.ndarray
+    def unpack_parameters(self, x: np.ndarray) -> Dict[str, torch.Tensor]:
+        """
+        Unpack a flat array to a state_dict-compatible mapping.
 
-        :returns: A dictionary of hyperparameters
-        :rtype: Dict
+        Parameters
+        ----------
+        x : np.ndarray
+            Flat parameter vector of length equal to total number of trainable parameters.
+
+        Returns
+        -------
+        param_dict : Dict[str, torch.Tensor]
+            Dictionary mapping parameter names to reshaped tensors.
         """
         i = 0
         named_parameters = OrderedDict()
@@ -78,9 +101,15 @@ class MLLObjective:
             # update index
             i += param_len
         return named_parameters
+    
+    def pack_grads(self) -> np.ndarray:
+        """
+        Flatten the gradients of all trainable parameters into a 1D numpy array.
 
-    def pack_grads(self) -> None:
-        """Concatenate gradients from the parameters to 1D numpy array
+        Returns
+        -------
+        grad_vector : ndarray
+            Gradient vector matching the flattened parameter vector.
         """
         grads = []
         for name,p in self.model.named_parameters():
@@ -90,22 +119,22 @@ class MLLObjective:
         return np.concatenate(grads).astype(np.float64)
 
     def fun(self, x:np.ndarray,return_grad=True) -> Union[float,Tuple[float,np.ndarray]]:
-        """Function to be passed to `scipy.optimize.minimize`,
+        """
+        Compute the negative log-likelihood (plus priors) and its gradient.
 
-        :param x: Hyperparameters in 1D representation
-        :type x: np.ndarray
+        Parameters
+        ----------
+        x : ndarray
+            Flattened hyperparameter vector.
+        return_grad : bool, optional
+            If True, also return the gradient. Default is True.
 
-        :param return_grad: Return gradients computed via automatic differentiation if 
-            `True`. Defaults to `True`.
-        :type return_grad: bool, optional
-
-        Returns:
-            One of the following, depending on `return_grad`
-                - If `return_grad`=`False`, returns only the objective
-                - If `return_grad`=`False`, returns a two-element tuple containing:
-                    - the objective
-                    - a numpy array of the gradients of the objective wrt the 
-                      hyperparameters computed via automatic differentiation
+        Returns
+        -------
+        obj_val : float
+            Value of the negative log-likelihood (or log-posterior).
+        grad_vector : ndarray
+            Gradient of the objective w.r.t. parameters (only if return_grad).
         """
         # unpack x and load into module 
         state_dict = self.unpack_parameters(x)
@@ -127,38 +156,37 @@ class MLLObjective:
 
 def fit_model_scipy(
     model,
-    add_prior:bool=True,
-    num_restarts:int=5,
-    theta0_list:Optional[List]=None, 
-    options:Dict={}
-    ) -> Tuple[List[OptimizeResult],float]:
-    """Optimize the likelihood/posterior of a GP model using `scipy.optimize.minimize`.
-
-    :param model: A model instance derived from the `models.GPR` class. Can also pass a instance
-        inherting from `gpytorch.models.ExactGP` provided that `num_restarts=0` or 
-        the class implements a `.reset_parameters` method.
-    :type model: models.GPR
-
-    :param num_restarts: The number of times to restart the local optimization from a 
-        new starting point. Defaults to 5
-    :type num_restarts: int, optional
-
-    :param options: A dictionary of `L-BFGS-B` options to be passed to `scipy.optimize.minimize`.
-    :type options: dict,optional
-
-    Returns:
-        A two-element tuple with the following elements
-            - a list of optimization result objects, one for each starting point.
-            - the best (negative) log-likelihood/log-posterior found
-    
-    :rtype: Tuple[List[OptimizeResult],float]
+    add_prior: bool = True,
+    num_restarts: int = 5,
+    options: Dict[str, Union[int, float]] = {},
+    n_jobs: int = 1
+) -> Tuple[List[OptimizeResult], float]:
     """
-    likobj = MLLObjective(model,add_prior)
-    current_state_dict = deepcopy(likobj.model.state_dict())
+    Optimize GP hyperparameters via SciPy's L-BFGS-B, with parallel restarts.
 
-    f_inc = np.inf
-    # Output - Contains either optimize result objects or exceptions
-    out = []
+    Parameters
+    ----------
+    model : gpytorch.models.ExactGP or models.GPR
+        Gaussian process model to optimize.
+    add_prior : bool, default=True
+        Include parameter priors in the log-posterior.
+    num_restarts : int, default=5
+        Number of random-restart local optimizations.
+    options : dict, optional
+        Options passed to SciPy's L-BFGS-B solver (e.g. 'maxiter', 'gtol').
+    n_jobs : int, default=1
+        Number of parallel jobs for restarts (-1 means use all cores).
+
+    Returns
+    -------
+    results : list of OptimizeResult
+        SciPy optimization result for each restart.
+    best_fun : float
+        Lowest objective value found across all restarts.
+    """
+    # Validate n_jobs
+    if not isinstance(n_jobs, int) or (n_jobs < 1 and n_jobs != -1):
+        raise ValueError(f"n_jobs must be -1 or a positive integer; got {n_jobs!r}")
 
     # default options
     defaults = {
@@ -170,42 +198,51 @@ def fit_model_scipy(
                 raise RuntimeError('Unknown option %s!'%key)
             defaults[key] = options[key]
 
-    
-    if theta0_list is not None:
-        num_restarts = len(theta0_list)-1
-        old_dict = deepcopy(model.state_dict())
-        old_dict.update(likobj.unpack_parameters(theta0_list[0]))
-        model.load_state_dict(old_dict)
+    def _restart_worker(i: int):
+        # Deep copy model per process
+        model_i = deepcopy(model)
+        # Initialize parameters
+        if i > 0:
+            model_i.reset_parameters()
 
-    for i in range(num_restarts+1):
-        try:
-            with gptsettings.fast_computations(log_prob=False):
-                res = minimize(
-                    fun = likobj.fun,
-                    x0 = likobj.pack_parameters(),
-                    args=(True),
-                    method = 'L-BFGS-B',
-                    bounds=None,
-                    jac=True,
-                    options=defaults
-                )
-            out.append(res)
-            
-            if res.fun < f_inc:
-                optimal_state = likobj.unpack_parameters(res.x)
-                current_state_dict = deepcopy(likobj.model.state_dict())
-                current_state_dict.update(optimal_state)
-                f_inc = res.fun
-        except Exception as e:
-            out.append(e)
-        
-        likobj.model.load_state_dict(current_state_dict)
-        if i < num_restarts:
-            # reset parameters
-            if theta0_list is None:
-                model.reset_parameters()
-            else:
-                old_dict.update(likobj.unpack_parameters(theta0_list[i+1]))
-                model.load_state_dict(old_dict)
+        # wrap objective
+        lik_i = MLLObjective(model_i, add_prior)
+        # optimize
+        with gptsettings.fast_computations(log_prob=False):
+            res = minimize(
+                fun = lik_i.fun,
+                x0 = lik_i.pack_parameters(),
+                args=(True),
+                method = 'L-BFGS-B',
+                bounds=None,
+                jac=True,
+                options=defaults
+            )
+        # unpack best state
+        best_state = None
+        if isinstance(res, OptimizeResult):
+            best_state = lik_i.unpack_parameters(res.x)
+        return res, best_state
 
-    return out,f_inc
+    # Run all restarts via joblib
+    outputs = Parallel(n_jobs=n_jobs)(
+        (delayed(_restart_worker)(i) for i in range(num_restarts + 1))
+    )
+
+    # Collect results
+    results = []
+    best_fun = float('inf')
+    best_state = None
+    for res, state in outputs:
+        results.append(res)
+        if hasattr(res, 'fun') and res.fun < best_fun:
+            best_fun = res.fun
+            best_state = state
+
+    # Load best into original model
+    current_state_dict = deepcopy(model.state_dict())
+    if best_state is not None:
+        current_state_dict.update(best_state)
+        model.load_state_dict(current_state_dict)
+
+    return results, best_fun

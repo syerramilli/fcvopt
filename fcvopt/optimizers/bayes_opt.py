@@ -202,7 +202,7 @@ class BayesOpt:
         if self.initial_params is not None:
             self.model.initialize(**self.initial_params)
 
-        _ = fit_model_scipy(model = self.model,num_restarts = 5)
+        _ = fit_model_scipy(model = self.model,num_restarts = 5, n_jobs=self.n_jobs)
             
         self.fit_time.append(time.time()-start_time)
 
