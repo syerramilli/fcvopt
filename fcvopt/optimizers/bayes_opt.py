@@ -242,7 +242,11 @@ class BayesOpt:
             else:
                 acqobj = UpperConfidenceBound(self.model, torch.tensor(4.))
         elif self.acq_function == 'KG':
-            acqobj = qKnowledgeGradient(self.model, sampler=SobolQMCNormalSampler(32, seed=0))
+            num_fantasies = 32
+            acqobj = qKnowledgeGradient(
+                self.model, sampler=SobolQMCNormalSampler(num_fantasies, seed=0), 
+                num_fantasies=num_fantasies
+            )
 
         start_time = time.time()
         new_x, max_acq = _optimize_botorch_acqf(
