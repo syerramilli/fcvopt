@@ -149,7 +149,7 @@ class FCVOpt(BayesOpt):
             
             for next_x in next_xs:
                 # shuffling to prevent ties among folds
-                np.random.shuffle(fold_idxs)
+                # np.random.shuffle(fold_idxs)
                 fold_metrics = self.model._fold_selection_metric(
                     torch.from_numpy(next_x).view(1,-1),fold_idxs
                 )

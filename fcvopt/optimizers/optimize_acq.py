@@ -49,7 +49,8 @@ def _optimize_botorch_acqf(
             bounds=bounds,
             q=q,
             num_restarts=num_restarts,
-            raw_samples=raw_samples
+            raw_samples=raw_samples,
+            options={'seed': 0}
         )
     else:
         initial_conditions = gen_batch_initial_conditions(
@@ -57,7 +58,8 @@ def _optimize_botorch_acqf(
             bounds=bounds,
             q=q,
             num_restarts=num_restarts,
-            raw_samples=raw_samples
+            raw_samples=raw_samples,
+            options={'seed': 0}
         )
 
     if n_jobs != 1:
