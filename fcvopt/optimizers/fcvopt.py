@@ -136,7 +136,7 @@ class FCVOpt(BayesOpt):
 
         if self.fold_selection_criterion == 'random':
             self.folds_cand.append(
-                np.random.choice(
+                np.random.default_rng(0).choice(
                     fold_idxs,size=num_candidates,replace=True
                 ).tolist()
             )
@@ -149,7 +149,7 @@ class FCVOpt(BayesOpt):
             
             for i, next_x in enumerate(next_xs):
                 # shuffling to prevent ties among folds
-                np.random.RandomState(i).shuffle(fold_idxs)
+                np.random.default_rng(i).shuffle(fold_idxs)
                 fold_metrics = self.model._fold_selection_metric(
                     torch.from_numpy(next_x).view(1,-1),fold_idxs
                 )

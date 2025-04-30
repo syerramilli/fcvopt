@@ -82,7 +82,7 @@ class BayesOpt:
             self._initialize(n_init)
 
             # fit model and find incumbent
-            self._fit_model_and_find_inc()
+            self._fit_model_and_find_inc(i)
         
             # acquisition find next candidate
             self._acquisition()
@@ -194,7 +194,7 @@ class BayesOpt:
         
         return evaluations
     
-    def _fit_model_and_find_inc(self) -> None:
+    def _fit_model_and_find_inc(self, i:int) -> None:
         # construct model
         self.model = self._construct_model()
 
@@ -202,7 +202,7 @@ class BayesOpt:
         if self.initial_params is not None:
             self.model.initialize(**self.initial_params)
 
-        _ = fit_model_scipy(model = self.model,num_restarts = 5, n_jobs=self.n_jobs)
+        _ = fit_model_scipy(model = self.model,num_restarts = 5, n_jobs=self.n_jobs, rng_seed=i)
             
         self.fit_time.append(time.time()-start_time)
 
@@ -229,16 +229,15 @@ class BayesOpt:
         ).double()
     
     def _acquisition(self) -> None:
-        sampler = SobolQMCNormalSampler(128)
         if self.acq_function == 'EI':
             best_f = -self.f_inc_est[-1] if self.minimize else self.f_inc_est[-1]
             if self.batch_acquisition:
-                acqobj = qExpectedImprovement(self.model,best_f,sampler)
+                acqobj = qExpectedImprovement(self.model,best_f, sampler = SobolQMCNormalSampler(128, seed=0))
             else:
                 acqobj = ExpectedImprovement(self.model, best_f)
         elif self.acq_function == 'LCB':
             if self.batch_acquisition:
-                acqobj = qUpperConfidenceBound(self.model, torch.tensor(4.), sampler)
+                acqobj = qUpperConfidenceBound(self.model, torch.tensor(4.), sampler = SobolQMCNormalSampler(128, seed=0))
             else:
                 acqobj = UpperConfidenceBound(self.model, torch.tensor(4.))
         elif self.acq_function == 'KG':

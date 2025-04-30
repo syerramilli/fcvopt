@@ -105,13 +105,13 @@ class MTBOCVOpt(FCVOpt):
 
         if self.fold_selection_criterion == 'random':
             self.folds_cand.append(
-                np.random.choice(
+                np.random.default_rng(0).choice(
                     fold_idxs,size=1,replace=True
                 ).tolist()
             )
         elif self.fold_selection_criterion == 'single-task-ei':
             # shuffling to prevent ties among folds
-            np.random.RandomState(0).shuffle(fold_idxs)
+            np.random.default_rng(0).shuffle(fold_idxs)
 
             fold_metrics = []
             for fold_idx in fold_idxs:

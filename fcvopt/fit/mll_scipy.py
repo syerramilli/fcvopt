@@ -159,7 +159,8 @@ def fit_model_scipy(
     add_prior: bool = True,
     num_restarts: int = 5,
     options: Dict[str, Union[int, float]] = {},
-    n_jobs: int = 1
+    n_jobs: int = 1,
+    rng_seed: int= 0
 ) -> Tuple[List[OptimizeResult], float]:
     """
     Optimize GP hyperparameters via SciPy's L-BFGS-B, with parallel restarts.
@@ -176,6 +177,8 @@ def fit_model_scipy(
         Options passed to SciPy's L-BFGS-B solver (e.g. 'maxiter', 'gtol').
     n_jobs : int, default=1
         Number of parallel jobs for restarts (-1 means use all cores).
+    rng_seed : int, default=0
+        Random seed for generating initial conditions for restarts
 
     Returns
     -------
@@ -198,12 +201,18 @@ def fit_model_scipy(
                 raise RuntimeError('Unknown option %s!'%key)
             defaults[key] = options[key]
 
+    seeds = np.random.default_rng(rng_seed).integers(0, 2**32 - 1, num_restarts + 1)
+
     def _restart_worker(i: int):
         # Deep copy model per process
         model_i = deepcopy(model)
         # Initialize parameters
         if i > 0:
+            # set torch seed
+            prev_state = torch.get_rng_state()
+            torch.manual_seed(int(seeds[i]))
             model_i.reset_parameters()
+            torch.set_rng_state(prev_state)
 
         # wrap objective
         lik_i = MLLObjective(model_i, add_prior)
