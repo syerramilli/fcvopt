@@ -71,7 +71,7 @@ class SklearnCVObj(CVObjective):
         model = clone(self.estimator).set_params(**params)
         # if the estimator is stochastic give it a reproducible seed
         if hasattr(model,'random_state'):
-            seed = self._rng.randint(0, np.iinfo(np.int32).max)
+            seed = self._rng.integers(0, np.iinfo(np.int32).max)
             model.set_params(**{'random_state':seed})
         
         return model
