@@ -65,7 +65,7 @@ class SklearnCVObj(CVObjective):
 
         self.estimator = estimator
         self.needs_proba = needs_proba
-        self._rng = np.random.RandomState(rng_seed)
+        self._rng = np.random.default_rng(rng_seed)
     
     def construct_model(self, params:Dict) -> BaseEstimator:
         model = clone(self.estimator).set_params(**params)

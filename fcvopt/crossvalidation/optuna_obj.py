@@ -22,7 +22,7 @@ def get_optuna_objective(cvobj:CVObjective, config:ConfigurationSpace,
         A function that takes in a trial object from optuna and returns the validation
         loss at a randomly chosen fold for the given hyperparameter configuration.
     '''
-    rng = np.random.RandomState(rng_seed)
+    rng = np.random.default_rng(rng_seed)
     def optuna_obj(trial) -> float:
         optuna_config = {} 
         for hyp in list(config.values()):
