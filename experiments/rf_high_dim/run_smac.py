@@ -64,6 +64,7 @@ cvobj = SklearnCVObj(
     n_repeats=1,
     holdout=False,
     task='binary-classification',
+    rng_seed=args.seed
 )
 
 
@@ -89,8 +90,14 @@ set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
 initial_confs = config.latinhypercube_sample(args.n_init)
 
+name = None
+for folder in os.listdir(save_dir):
+    name = folder
+    break    
+
 scenario = Scenario(
     config,
+    name=name,
     n_trials=args.n_init+args.n_iter-1,  
     output_directory=save_dir,
     deterministic=False
@@ -104,7 +111,7 @@ smac = HyperparameterOptimizationFacade(
     scenario,
     cvloss,
     initial_design=initial_design,
-    overwrite=True,
+    overwrite=False
 )
 
 incumbent = smac.optimize()

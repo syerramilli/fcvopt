@@ -53,7 +53,8 @@ class SklearnCVObj(CVObjective):
         scale_output=False, 
         input_preprocessor=None,
         stratified=False, 
-        num_jobs=1
+        num_jobs=1,
+        rng_seed=None
     ):
         super().__init__(
             X, y, task, loss_metric, n_splits=n_splits, n_repeats=n_repeats, 
@@ -64,9 +65,16 @@ class SklearnCVObj(CVObjective):
 
         self.estimator = estimator
         self.needs_proba = needs_proba
+        self._rng = np.random.RandomState(rng_seed)
     
     def construct_model(self, params:Dict) -> BaseEstimator:
-        return clone(self.estimator).set_params(**params)
+        model = clone(self.estimator).set_params(**params)
+        # if the estimator is stochastic give it a reproducible seed
+        if hasattr(model,'random_state'):
+            seed = self._rng.randint(0, np.iinfo(np.int32).max)
+            model.set_params(**{'random_state':seed})
+        
+        return model
     
     def _fit_and_test(self, params, train_index, test_index):
         model = self.construct_model(params)

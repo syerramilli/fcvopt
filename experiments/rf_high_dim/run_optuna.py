@@ -67,6 +67,7 @@ cvobj = SklearnCVObj(
     n_repeats=1,
     holdout=False,
     task='binary-classification',
+    rng_seed=args.seed
 )
 
 #%% 
