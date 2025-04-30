@@ -87,10 +87,10 @@ set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
 init_trials = [dict(conf) for conf in config.latinhypercube_sample(args.n_init)]
 start_fold_idxs = stratified_sample(10, args.n_init).tolist()
-optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs)
+optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs, rng_seed=args.seed)
 
 sampler = optuna.samplers.TPESampler(
-    n_startup_trials=args.n_init
+    n_startup_trials=args.n_init, seed=args.seed
 )
 
 remaining_trials = args.n_init + args.n_iter - 1

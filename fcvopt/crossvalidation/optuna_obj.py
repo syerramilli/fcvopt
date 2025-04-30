@@ -5,7 +5,8 @@ from ..configspace import ConfigurationSpace,CSH
 from typing import Callable, List, Optional
 
 def get_optuna_objective(cvobj:CVObjective, config:ConfigurationSpace, 
-                         start_fold_idxs:Optional[List] = None ) -> Callable:
+                         start_fold_idxs:Optional[List] = None,
+                         rng_seed:Optional[int]=None) -> Callable:
     '''Utility function that returns the cross-validation objective
         for use with optuna.
 
@@ -21,6 +22,7 @@ def get_optuna_objective(cvobj:CVObjective, config:ConfigurationSpace,
         A function that takes in a trial object from optuna and returns the validation
         loss at a randomly chosen fold for the given hyperparameter configuration.
     '''
+    rng = np.random.RandomState(rng_seed)
     def optuna_obj(trial) -> float:
         optuna_config = {} 
         for hyp in list(config.values()):
@@ -34,7 +36,7 @@ def get_optuna_objective(cvobj:CVObjective, config:ConfigurationSpace,
         if start_fold_idxs is not None and trial.number < len(start_fold_idxs):
             fold_idxs = start_fold_idxs[trial.number]
         else:
-            fold_idxs = np.random.choice(len(cvobj.train_test_splits))
+            fold_idxs = rng.choice(len(cvobj.train_test_splits))
         return cvobj.cvloss(params=optuna_config,fold_idxs=[fold_idxs])
 
     return optuna_obj
