@@ -49,7 +49,7 @@ DATA_IDS = {
     'electricity':44156
 }
 
-X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=True)
+X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=True, parser='auto')
 
 #%% define estimator and cross-validation objective
 set_seed(1)
