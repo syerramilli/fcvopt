@@ -55,7 +55,7 @@ X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=True)
 set_seed(1)
 cvobj = XGBoostCVObjEarlyStopping(
     estimator=XGBClassifier(
-        n_estimators=2000,tree_method='approx',enable_categorical=True
+        n_estimators=2000,tree_method='approx',enable_categorical=True,n_jobs=-1
     ),
     X=X,y=y,
     loss_metric=metric,
@@ -64,12 +64,13 @@ cvobj = XGBoostCVObjEarlyStopping(
     n_repeats=1,
     holdout=False,
     task='binary-classification',
-    early_stopping_rounds=50
+    early_stopping_rounds=50,
+    rng_seed=args.seed
 )
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Float('learning_rate',bounds=(1e-5,0.95),log=True),
     Integer('max_depth',bounds=(1,12),log=True),
     Integer('max_leaves',bounds=(2,1024),log=True),
@@ -85,12 +86,12 @@ config.generate_indices()
 #%%
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
-init_trials = [conf.get_dictionary() for conf in config.latinhypercube_sample(args.n_init)]
+init_trials = [dict(conf) for conf in config.latinhypercube_sample(args.n_init)]
 start_fold_idxs = stratified_sample(10, args.n_init).tolist()
 optuna_obj = get_optuna_objective(cvobj, config, start_fold_idxs)
 
 sampler = optuna.samplers.TPESampler(
-    n_startup_trials=args.n_init
+    n_startup_trials=args.n_init, seed=args.seed
 )
 
 # Calculate remaining trials: total desired minus already completed trials.

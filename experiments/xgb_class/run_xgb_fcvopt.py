@@ -58,7 +58,7 @@ X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=True)
 set_seed(1)
 cvobj = XGBoostCVObjEarlyStopping(
     estimator=XGBClassifier(
-        n_estimators=2000,tree_method='approx',enable_categorical=True
+        n_estimators=2000,tree_method='approx',enable_categorical=True, n_jobs=-1
     ),
     X=X,y=y,
     loss_metric=metric,
@@ -67,7 +67,8 @@ cvobj = XGBoostCVObjEarlyStopping(
     n_repeats=1,
     holdout=False,
     task='binary-classification',
-    early_stopping_rounds=50
+    early_stopping_rounds=50,
+    rng_seed=args.seed
 )
 
 
@@ -80,7 +81,7 @@ if 'batch' in args.acq:
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Float('learning_rate',bounds=(1e-5,0.95),log=True),
     Integer('max_depth',bounds=(1,12),log=True),
     Integer('max_leaves',bounds=(2,1024),log=True),
@@ -105,7 +106,8 @@ if args.acq.startswith('mtbo'):
         save_iter=10,
         save_dir = save_dir,
         verbose=2,
-        constant_task_corr=constant_task_corr
+        constant_task_corr=constant_task_corr,
+        n_jobs=-1
     )
     
 else:
@@ -125,10 +127,12 @@ else:
         save_iter=10,
         save_dir = save_dir,
         verbose=2,
+        n_jobs=-1,
         **acq_args
     )
 
 training_path = os.path.join(save_dir,'model_train.pt')
+iters_to_run = args.n_iter
 if os.path.exists(training_path):
     # resume progress from last time
     # load saved progress
@@ -147,9 +151,13 @@ if os.path.exists(training_path):
 
     # run the remaining iterations
     num_iters_completed = len(opt.f_inc_est)
-    out = opt.run(args.n_iter-num_iters_completed)
-else:
-    out = opt.run(args.n_iter,n_init=args.n_init)
+    iters_to_run = args.n_iter-num_iters_completed
+    
 
-# save to disk
-opt.save_to_file(save_dir)
+if iters_to_run > 0:
+    # run the optimization
+    out = opt.run(iters_to_run, n_init=args.n_init)
+    # save to disk
+    opt.save_to_file(save_dir)
+else:
+    print(f'Already completed {args.n_iter} iterations, skipping...')

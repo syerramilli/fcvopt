@@ -54,7 +54,7 @@ X,y = fetch_openml(data_id=DATA_IDS[args.dataset],return_X_y=True,as_frame=True)
 set_seed(1)
 cvobj = XGBoostCVObjEarlyStopping(
     estimator=XGBClassifier(
-        n_estimators=2000,tree_method='approx',enable_categorical=True
+        n_estimators=2000,tree_method='approx',enable_categorical=True, n_jobs=-1
     ),
     X=X,y=y,
     loss_metric=metric,
@@ -63,12 +63,13 @@ cvobj = XGBoostCVObjEarlyStopping(
     n_repeats=1,
     holdout=False,
     task='binary-classification',
-    early_stopping_rounds=50
+    early_stopping_rounds=50,
+    rng_seed=args.seed
 )
 
 #%% 
 config = ConfigurationSpace(seed=1234)
-config.add_hyperparameters([
+config.add([
     Float('learning_rate',bounds=(1e-5,0.95),log=True),
     Integer('max_depth',bounds=(1,12),log=True),
     Integer('max_leaves',bounds=(2,1024),log=True),
