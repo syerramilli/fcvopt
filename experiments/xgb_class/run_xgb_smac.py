@@ -87,7 +87,7 @@ def cvloss(config,seed:int=0) -> float:
     rng  = np.random.default_rng(seed=seed)
     fold_idxs = rng.choice(len(cvobj.train_test_splits))
     
-    return cvobj.cvloss(params=config.get_dictionary(),fold_idxs=[fold_idxs])
+    return cvobj.cvloss(params=dict(config),fold_idxs=[fold_idxs])
 
 set_seed(args.seed)
 config.seed(np.random.randint(2e+4))
