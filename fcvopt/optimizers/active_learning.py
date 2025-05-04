@@ -9,9 +9,10 @@ import joblib
 from ..models import GPR
 from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
-from ..acquisition.active import ActiveLearningCohn
 
-from .acqfunoptimizer import AcqFunOptimizer
+from botorch.acquisition import qNegIntegratedPosteriorVariance
+from botorch.sampling import SobolQMCNormalSampler
+from .optimize_acq import _optimize_botorch_acqf
 
 from typing import Callable,List,Union,Tuple,Optional,Dict
 from collections import OrderedDict
@@ -23,16 +24,18 @@ class ActiveLearning:
         obj:Callable,
         config:ConfigurationSpace,
         X_ref:torch.Tensor,
-        acquisition_type:str='alc',
         n_jobs:int=1,
         verbose:int=1,
         save_iter:Optional[int]=None,
         save_dir:Optional[int]=None,
+        # TODO: remove this criterion
+        acquisition_type:str='alc'
     ):
         self.obj = obj
         self.config = config
         self.X_ref = X_ref
-        self.acquisition_type = acquisition_type
+        if not isinstance(n_jobs, int) or (n_jobs < 1 and n_jobs != -1):
+            raise ValueError(f"n_jobs must be -1 (all cores) or a positive integer; got {n_jobs!r}")
         self.n_jobs = n_jobs
         self.verbose=verbose
         self.save_iter = save_iter
@@ -48,7 +51,6 @@ class ActiveLearning:
         self.fit_time = []
         self.acqopt_time = []
         self.obj_eval_time = []
-        # mcmc parameters
         self.initial_params = None
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
@@ -157,13 +159,15 @@ class ActiveLearning:
         if self.initial_params is not None:
             self.model.initialize(**self.initial_params)
 
-        _ = fit_model_scipy(model = self.model,num_restarts = 5)
+        _ = fit_model_scipy(model = self.model,num_restarts = 5, n_jobs=self.n_jobs)
             
         self.fit_time.append(time.time()-start_time)
 
+        # disable model gradients
         self.initial_params = OrderedDict()
         for name,parameter in self.model.named_parameters():
-            self.initial_params[name] = parameter.detach().clone()
+            parameter.requires_grad_(False)
+            self.initial_params[name] = parameter
             
         # generate model cache
         self.model.eval()
@@ -177,27 +181,24 @@ class ActiveLearning:
         ).double()
     
     def _acquisition(self) -> None:
-        if self.acquisition_type == 'alc':
-            acqobj = ActiveLearningCohn(self.model, self.X_ref)
-            
-            acqopt = AcqFunOptimizer(
-                acq_fun=acqobj,
-                ndim = self.config.ndim,
-                num_starts = 10*self.config.ndim,
-                x0=None,
-                num_jobs=1,
-            )
-            start_time = time.time()
-            next_x = acqopt.run()
-            self.acqopt_time.append(time.time()-start_time)
-            self.confs_cand.append([self.config.get_conf_from_array(next_x)])
-            self.acq_vec.append(acqopt.obj_sign*acqopt.f_inc)
-        else:
-            ## sample the Xref with the largest posterior variance
-            start_time = time.time()
-            with torch.no_grad():
-                _, post_std = self.model.predict(self.X_ref, return_std=True)
-            idx_argmax = post_std.argmax().item()
-            self.acqopt_time.append(time.time()-start_time)
-            self.confs_cand.append([self.config.get_conf_from_array(self.X_ref[idx_argmax,:].numpy())])
-            self.acq_vec.append(-post_std[idx_argmax].item())   
+        acqobj = qNegIntegratedPosteriorVariance(
+            self.model,
+            mc_points=self.X_ref,
+            # dummy sampler - the posterior variance will not
+            # depend on the y values
+            sampler=SobolQMCNormalSampler(sample_shape=torch.Size([1]), seed=0)
+        )
+        start_time = time.time()
+        new_x, max_acq = _optimize_botorch_acqf(
+            acq_function=acqobj,
+            d=self.train_x.shape[-1],
+            q=1,
+            num_restarts = 20,
+            n_jobs=self.n_jobs,
+            raw_samples=128
+        )
+
+        end_time = time.time()
+        self.acqopt_time.append(end_time-start_time)
+        self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
+        self.acq_vec.append(max_acq.item())

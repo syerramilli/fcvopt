@@ -16,16 +16,10 @@ from botorch.acquisition import (
     UpperConfidenceBound, qUpperConfidenceBound,
     qKnowledgeGradient
 )
-from botorch.optim import optimize_acqf
-from botorch.optim.initializers import (
-    gen_batch_initial_conditions,
-    gen_one_shot_kg_initial_conditions,
-)
 from botorch.sampling import SobolQMCNormalSampler
 
 from typing import Callable,List,Optional,Dict
 from collections import OrderedDict
-from copy import deepcopy
 
 class BayesOpt:
     def __init__(
