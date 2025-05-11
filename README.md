@@ -52,10 +52,11 @@ This will launch the container and open a bash shell. The experiments directory 
 docker run -v $(pwd)/experiments:/app/experiments -it fcvopt_test
 ```
 
-
 Once inside the container, you can navigate to the /app/experiments directory and run the experiments as needed. For example:
 
 ```{bash}
 cd experiments
 bash reproduce_rf.sh
 ```
+
+**Note:** On Ubuntu/Debian, you may need administrative privileges to run the Docker commands. You can do this by adding `sudo` before the command.
