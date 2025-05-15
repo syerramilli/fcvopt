@@ -4,18 +4,6 @@ This repository containts code to reproduce the results from the paper "Fraction
 
 The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files.
 
-## Installation 
-Prior to running the experiments, the `fcvopt` package must be installed. This can be done through pip:
-
-```{bash}
-cd <path_to_directory>
-pip install .[experiments]
-```
-This will also install the dependencies, along with the additional packages, such as SMAC and optuna, for running some of the experiments.
-
-**Note:**
-The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the building and compliling the `pyrfr` package While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler and the `swig` binary installed on your system. 
-
 
 ## Setting up virtual environments/ containers
 
@@ -31,6 +19,9 @@ To run the script, use the following commands:
 chmod +x venv_setup.sh
 ./venv_setup.sh
 ```
+
+**Note:**
+The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the building and compliling the `pyrfr` package While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler and the `swig` binary installed on your system. 
 
 ### Docker
 
