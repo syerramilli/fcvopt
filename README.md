@@ -1,5 +1,9 @@
 # fcvopt: Fractional cross-validation for hyperparameter optimization
 
+**Authors:**
+- Suraj Yerramilli, Department of Industrial Engineering & Management Sciences, Northwestern University
+- Daniel W. Apley, Department of Industrial Engineering & Management Sciences, Northwestern University
+
 This repository containts code to reproduce the results from the paper "Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms".
 
 The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files.
