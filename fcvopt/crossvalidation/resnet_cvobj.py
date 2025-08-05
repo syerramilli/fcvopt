@@ -15,7 +15,7 @@ from typing import List, Tuple, Optional, Dict
 from ..crossvalidation.sklearn_cvobj import SklearnCVObj
 
 def make_normalization(normalization:str, input_dim:int):
-    '''utility function to return the normlaiation layer'''
+    '''utility function to return the normalization layer'''
     return {'batchnorm': nn.BatchNorm1d, 'layernorm': nn.LayerNorm}[
         normalization
     ](input_dim)
@@ -112,7 +112,7 @@ class TabularResNet(nn.Module):
 
 
 class ResNetCVObj(SklearnCVObj):
-    '''A cross-validation loss evaluator for ResNet models
+    '''A cross-validation loss evaluator for Tablular ResNet models
 
     :note: The network is constructed using the `skorch` library, that wraps PyTorch modules
         into scikit-learn compatible estimators. The `skorch` library is not a dependency of
