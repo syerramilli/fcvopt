@@ -4,11 +4,55 @@ from .bayes_opt import BayesOpt
 from ..models import HGP
 
 from ..configspace import ConfigurationSpace
+from ConfigSpace import Configuration
 from ..util.samplers import stratified_sample
-from typing import Callable,List,Union,Tuple,Optional,Dict
+from typing import Callable, List ,Optional 
 import joblib
 
 class FCVOpt(BayesOpt):
+    """Fractional cross-validation for hyperparameter optimization
+    
+    Implements the fractional CV approach from "Fractional cross-validation for optimizing
+    hyperparameters of supervised learning algorithms." This method uses a hierarchical
+    Gaussian process (HGP) model to exploit the correlation of single-fold out-of-sample
+    errors across hyperparameter configurations, enabling efficient Bayesian
+    optimization with only a fraction of the K folds evaluated per configuration.
+
+    Rather than performing full K-fold CV at every candidate point, FCVOpt:
+      - Employs a hierarchical GP that models both fold-wise and hyperparameter-wise
+        covariance structures
+      - Evaluates only one fold (or a small subset of folds) for most configurations,
+        drastically reducing computation
+      - Selects folds adaptively based on variance reduction or random sampling
+
+    Args:
+        obj: Objective function that takes a hyperparameter configuration dict and returns
+            a scalar cross-validation error for a given fold index list.
+        config: Hyperparameter search space.
+        n_folds: Number of folds in standard K-fold cross-validation.
+        n_repeats: Number of independent repeats of K-fold CV; used to expand the fold index 
+            set. Defaults to 1.
+        fold_selection_criterion: Strategy for selecting the next fold to evaluate:
+            - 'variance_reduction': choose the fold that minimizes predictive variance via
+              HGP._fold_selection_metric
+            - 'random': choose folds uniformly at random
+            Defaults to 'variance_reduction'.
+        fold_initialization: Strategy for assigning folds in the initial random sample of configurations:
+            - 'random': sample folds uniformly at random
+            - 'stratified': use stratified sampling across folds via
+              :func:`fcvopt.util.samplers.stratified_sample`
+            - 'two_folds': randomly pick two distinct folds and split samples between them
+            Defaults to 'random'.
+        minimize: If True, minimizes the cross-validation error; otherwise maximizes. Defaults to True.
+        acq_function: Acquisition function to use. One of {'LCB', 'KG'}. Note that 'EI' is not supported and will 
+            raise a RuntimeError. Defaults to 'LCB'.
+        **kwargs: Additional keyword arguments passed to :class:`.bayes_opt.BayesOpt`:
+            `acq_function_options`, `batch_acquisition`, `acquisition_q`, `verbose`,
+            `save_iter`, `save_dir`, and `n_jobs`.
+
+    References:
+        - :class:`fcvopt.models.HGP`
+    """
     def __init__(
         self,
         obj:Callable,
@@ -99,7 +143,12 @@ class FCVOpt(BayesOpt):
 
                 self.obj_eval_time.append(eval_time)
     
-    def _evaluate_confs(self,confs_list,folds_list,**kwargs):
+    def _evaluate_confs(
+            self,
+            confs_list:List[Configuration],
+            folds_list:List[int],
+            **kwargs
+        ):
         if self.n_jobs > 1 and len(confs_list) > 1:
             # enable parallel evaulations
             evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
@@ -114,13 +163,19 @@ class FCVOpt(BayesOpt):
         
         return evaluations
 
-    def _construct_model(self):
+    def _construct_model(self) -> HGP:
         return HGP(
             train_x = (self.train_x,self.train_folds),
             train_y = self.sign_mul*self.train_y
         ).double()
     
     def _acquisition(self) -> None:
+        """Propose next hyperparameter-fold pairs using acquisition and fold criterion.
+
+        1. Call `BayesOpt._acquisition` to get next hyperparameter candidates.
+        2. Select fold(s) per candidate based on `fold_selection_criterion`, either
+           minimizing predictive variance (via HGP) or random sampling.
+        """
         # acquisition for x is the same as BayesOpt
         super()._acquisition()
 

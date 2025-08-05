@@ -10,6 +10,7 @@ from .optimize_acq import _optimize_botorch_acqf
 from ..models import GPR
 from ..fit.mll_scipy import fit_model_scipy
 from ..configspace import ConfigurationSpace
+from ConfigSpace import Configuration
 
 from botorch.acquisition import (
     ExpectedImprovement,qExpectedImprovement,
@@ -18,10 +19,34 @@ from botorch.acquisition import (
 )
 from botorch.sampling import SobolQMCNormalSampler
 
-from typing import Callable,List,Optional,Dict
+from typing import Callable, List, Optional, Dict, Tuple
 from collections import OrderedDict
 
 class BayesOpt:
+    """Bayesian Optimization for optimizing a given objective function.
+
+    This class implements a Bayesian optimization loop that iteratively fits a Gaussian 
+    Process model to the objective function and prpopses new configurations to evaulate 
+    via an acquisition function.
+
+    Args:
+        obj: The objective function mapping a configuration dict to a scalar value.
+        config: The search space.
+        minimize: If True, minimizes the objective; otherwise maximizes it. Defaults to True.
+        acq_function: Acquisition function to use. One of {'EI', 'LCB', 'KG'}. Defaults to 'EI'.
+        acq_function_options: Additional keyword arguments passed to the acquisition function constructor. 
+                Defaults to None.
+        batch_acquisition: If True, a batch of configurations (the number specifed by `acquisition_q`) 
+                is selected for each iteration . Defaults to False.
+        acquisition_q (int, optional):
+            Number of points in each proposed batch when `batch_acquisition` is True. Defaults to 1.
+        verbose: Verbosity level to print to console; 0=no output, 1=summary at end, 2=detailed per-iteration 
+                log. Defaults to 1.
+        save_iter: Interval (in iterations) at which to auto-save state. Defaults to None.
+        save_dir: Directory path in which to save state files if `save_iter` is set. Defaults to None.
+        n_jobs: Number of parallel jobs for objective evaluation and model fitting. Use -1 to utilize all 
+                available CPU cores. Defaults to 1.
+    """
     def __init__(
         self,
         obj:Callable,
@@ -68,7 +93,23 @@ class BayesOpt:
         self.initial_params = None
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
+        """Run the Bayesian optimization loop.
 
+        This method will perform `n_iter` iterations of model fitting, acquisition optimization, 
+        and objective evaluation. The total number of configurations evaluated will be
+        `n_init + n_iter - 1`, where `n_init` is the number of random initial points.
+
+        Args:
+            n_iter: Number of Bayesian optimization iterations to perform.
+            n_init: Number of random initial points. If None, defaults to `len(config.quant_index) + 1`.
+
+        Returns:
+            dict: An ordered dictionary containing:
+                - 'conf_inc': Best configuration found.
+                - 'f_inc_obs': Observed objective value at best config.
+                - 'f_inc_est': Model’s estimate at best config.
+        """
+        # TODO: change n_iter to n_trials for more user-friendly API
         output_header = '%6s %10s %10s %10s' % \
                     ('iter', 'f_inc_obs', 'f_inc_est','acq_cand')
         for i in range(n_iter):
@@ -126,7 +167,12 @@ class BayesOpt:
     def data_keys(self)->List:
         return ['train_x','train_y']
 
-    def save_to_file(self,path):
+    def save_to_file(self, path:str):
+        """Save optimization stats, observations, and model state.
+
+        Args:
+            path: Directory in which to save the data.
+        """ 
         #  optimization statistics
         stats = {
             key:getattr(self,key) for key in self.stats_keys
@@ -168,13 +214,33 @@ class BayesOpt:
                 self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
                 self.obj_eval_time.append(eval_time)
     
-    def _evaluate(self,conf,**kwargs):
+    def _evaluate(self, conf:Configuration, **kwargs) -> Tuple[np.ndarray, float, float]:
+        """Evaluate the objective on a single configuration.
+
+        Args:
+            conf: A single configuration object.
+            **kwargs: Additional keyword args passed to `self.obj`.
+
+        Returns:
+            tuple: (ndarray, float, float) where the first element is the
+                numeric array from `conf.get_array()`, the second is the
+                objective value, and the third is elapsed time.
+        """
         start_time = time.time()
         y = self.obj(dict(conf),**kwargs)
         eval_time = time.time()-start_time
         return conf.get_array(),y,eval_time
 
-    def _evaluate_confs(self,confs_list,**kwargs):
+    def _evaluate_confs(self, confs_list:List[Configuration],**kwargs) -> List[Tuple[np.ndarray, float, float]]:
+        """Evaluate multiple configurations, optionally in parallel.
+
+        Args:
+            confs_list: List of configurations to evaulate the objective on.
+            **kwargs: Additional keyword args passed to `self.obj`.
+
+        Returns:
+            List[tuple]: Each element is the return of `_evaluate`.
+        """
         if self.n_jobs > 1 and len(confs_list) > 1:
             # enable parallel evaulations
             evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
@@ -216,7 +282,7 @@ class BayesOpt:
         self.f_inc_obs.append(self.train_y[fmin_index].item())
         self.f_inc_est.append(self.sign_mul*train_pred[fmin_index].item())
     
-    def _construct_model(self):
+    def _construct_model(self) -> GPR:
         return GPR(
             train_x = self.train_x,
             train_y = self.sign_mul*self.train_y,
