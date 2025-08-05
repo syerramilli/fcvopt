@@ -12,19 +12,37 @@ from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
 
 from .priors import HalfCauchyPrior
 from .warp import InputWarp
+from typing import Optional
 
 def exp_with_shift(x:torch.Tensor):
     return 1e-6+x.exp()
 
-class GPR(ExactGP,GPyTorchModel,FantasizeMixin):
+class GPR(ExactGP, GPyTorchModel, FantasizeMixin):
     _num_outputs=1 # needed for botorch functions
-
+    r'''Single output Gaussian Process Regression model.
+     
+    The model uses a Gaussian likelihood with a half-Cauchy prior on the noise level,
+    and a constant mean function. The default covariance kernel is a Matern 5/2 kernel 
+    with Automatic Relevance Determination (ARD) and a log-normal prior on the output scale. 
+    The model can also be configured to accept custom covariance kernel objects, provided they 
+    are extensions of `gpytorch.kernels.Kernel`.
+    
+    
+    The model supports input warping via the `InputWarp` module, which can be enabled by setting 
+    `warp_input=True`. This is useful for transforming the input space to improve model performance.
+    
+    Args:
+        train_x: training data with dimensions (N x D).
+        train_y: training targets with dimensions (N x 1).
+        warp_input: If `True`, applies input warping to the input data. Default is `False`.
+        covar_kernel: Optional custom covariance kernel object. If `None`, a default Matern 2/5 kernel is used.
+    '''
     def __init__(
         self,
         train_x:torch.Tensor,
         train_y:torch.Tensor,
-        warp_input:bool=False,
-        covar_kernel= None
+        warp_input:bool = False,
+        covar_kernel:Optional[kernels.Kernel]= None
     ) -> None:
     
         # initializing likelihood
@@ -81,7 +99,14 @@ class GPR(ExactGP,GPyTorchModel,FantasizeMixin):
                 continue
             setting_closure(module,prior.expand(closure(module).shape).sample())
 
-    def predict(self,x,return_std=False):
+    def predict(self, x:torch.Tensor, return_std:bool=False) -> torch.Tensor | tuple[torch.Tensor]:
+        r'''Returns the predicted mean and optionally the standard deviation of the model 
+        at the given input points, conditioned on the training data.
+
+        Args:
+            x: Input points of shape (N x D)
+            return_std: If `True`, also returns the standard deviation. Default is `False`.
+        '''
         self.eval()
 
         out_dist = self.posterior(x).mvn

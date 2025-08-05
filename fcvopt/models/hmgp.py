@@ -21,9 +21,13 @@ class HGP(GPR):
     a delta GP that models the deviation of the individual fold holdout losses 
     from the CV loss.
 
-    The model is defined as:
+    The model is defined as
+
     .. math::
-        y_j(x) = f(x) + \delta_j(x) + \epsilon_j(x)
+
+        \begin{equation*}
+            y_j(x) = f(x) + \delta_j(x) + \epsilon_j(x)
+        \end{equation*}
 
     where :math:`\delta_j(x)` is the deviation of the individual fold holdout losses
     from the CV loss, and :math:`\epsilon_j(x)` is the observation noise.
@@ -61,7 +65,14 @@ class HGP(GPR):
 
         self.corr_delta_fold = HammingKernel()
 
-    def forward(self,x,fold_idx):
+    def forward(self, x:torch.Tensor, fold_idx:torch.Tensor) -> gpytorch.distributions.MultivariateNormal:
+        r'''Forward pass  of the model for :math:`y_{fold\_idx}(x)` at hyperparameters x 
+        and fold index `fold_idx`
+
+        Args:
+            x: A tensor of input locations with dimensions (N x D)
+            fold_idx: A tensor of fold indices with dimensions (N x 1)
+        '''
         if self.warp_input:
             x = self.input_warping(x)
 
@@ -71,7 +82,13 @@ class HGP(GPR):
         covar = covar_f + covar_delta
         return gpytorch.distributions.MultivariateNormal(mean_x,covar)
     
-    def forward_f(self,x):
+    def forward_f(self, x:torch.Tensor) -> gpytorch.distributions.MultivariateNormal:
+        r'''
+        Forward pass of the main GP `f` for :math:`f(x)` at hyperparameters x
+
+        Args:
+            x: A tensor of input locations with dimensions (N x D)
+        '''
         # Only with GP f
         if self.warp_input:
             x = self.input_warping(x)
@@ -83,24 +100,21 @@ class HGP(GPR):
     def posterior(
         self, X:torch.Tensor,
         observation_noise:bool=False,
-        posterior_transform=None,**kwargs
+        **kwargs
     ) -> GPyTorchPosterior:
-        '''Returns the posterior distribution of the CV loss at the input locations `X`
+        '''Returns the posterior distribution of the CV loss :math:`f(\cdot)` at the input locations `X`
 
-        :note:: This does not return the posterior distribution of the individual fold
-            holdout losses.
+        .. note::
+
+            This method returns the posterior distribution of the main GP `f`, not  
+            the posterior distribution of the individual fold holdout losses.
 
         Args:
             X: input locations with dimensions (N x D). Note that this should not include
                 the fold indices.
             observation_noise: whether to include the observation noise in the posterior.
                 We recommend setting this to False. Default: False
-            posterior_transform: a transform to apply to the posterior distribution.
-                Default: None
-            kwargs: additional keyword arguments to pass to the `posterior_transform`
-
-        Returns:
-            A `GPyTorchPosterior` object
+            kwargs: not used
         '''
         self.eval()  # make sure model is in eval mode
         
@@ -205,8 +219,23 @@ class HGP(GPR):
         
         return out
 
-    def condition_on_observations(self, X, Y,**kwargs):
-        Yvar = kwargs.get('noise',None)
+    def condition_on_observations(self, X:torch.Tensor, Y:torch.Tensor, **kwargs) -> GPR:
+        r'''
+        Returns a new model for the true CV loss function :math:`f(\cdot)` 
+        conditioned on new observations :math:`Y` at the input locations :math:`X`. 
+        
+        This is used for fantasy modeling for the knowledge gradient and batch acquistion
+        functions, where we want to obtain a new model with these observations added to 
+        the existing training data without modifying the original model. 
+
+        Args:
+            X: input locations with dimensions (N x D), where N is the number of observations
+                and D is the number of input dimensions.
+            Y: targets at the input locations with dimensions (N x 1)
+            **kwargs: not used here
+        '''
+
+        Yvar = kwargs.get('noise', None)
 
         if hasattr(self, "outcome_transform"):
             # pass the transformed data to get_fantasy_model below
@@ -216,6 +245,9 @@ class HGP(GPR):
             Y = Y.squeeze(-1)
         
         # Create a new GP model based on the CV loss f
+        # Note: we need to pass the untransformed targets to the new model
+        # because the same outcome transform will be applied when creating
+        # the GPR model
         new_model = GPR(
             train_x = self.train_inputs[0],
             train_y = self.outcome_transform.untransform(self.train_targets)[0].flatten(),

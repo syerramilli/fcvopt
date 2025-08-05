@@ -2,16 +2,21 @@ import math
 import torch
 from torch.nn import Module as TModule
 from gpytorch.priors import Prior
-from torch.distributions import constraints,HalfCauchy, Beta
+from torch.distributions import constraints, HalfCauchy, Beta
 from torch.distributions.utils import broadcast_all
 from numbers import Number
 
 class HalfCauchyPrior(Prior, HalfCauchy):
     """
-    Half-Cauchy prior.
-    """
+    Half-Cauchy prior distribution parameterized by a scale parameter.
 
-    def __init__(self, scale, validate_args=None, transform=None):
+    Args:
+        scale: The scale parameter of the Half-Cauchy distribution.
+        validate_args: If `True`, validates the input arguments.
+        transform: Optional transform to apply to the distribution.
+
+    """
+    def __init__(self, scale: torch.Tensor, validate_args=None, transform=None):
         TModule.__init__(self)
         HalfCauchy.__init__(self, scale=scale, validate_args=validate_args)
         self._transform = transform
@@ -25,9 +30,15 @@ class BetaPrior(Prior, Beta):
     pdf(x) = 1/Beta(alpha,beta) * x^(alpha - 1) * (1-x)^(beta-1)
 
     were alpha > 0 and beta > 0 are the two concentration parameters, respectively.
+
+    Args:
+        concentration1: The first concentration parameter (alpha).
+        concentration0: The second concentration parameter (beta).
+        validate_args: If `True`, validates the input arguments.
+        transform: Optional transform to apply to the distribution.
     """
     support=constraints.interval(0.,1.)
-    def __init__(self, concentration1, concentration0, validate_args=False, transform=None):
+    def __init__(self, concentration1: torch.Tensor, concentration0: torch.Tensor, validate_args=False, transform=None):
         TModule.__init__(self)
         Beta.__init__(self, concentration1=concentration1, concentration0=concentration0, validate_args=validate_args)
         self._transform = transform
