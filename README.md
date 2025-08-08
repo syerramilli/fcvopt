@@ -8,6 +8,18 @@ This repository containts code to reproduce the results from the paper "Fraction
 
 The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files.
 
+## Citing
+If you use this code in your research, please cite the following paper:
+
+```
+@article{yerramilli2025fractional,
+    author = {Suraj Yerramilli and Daniel W. Apley},
+    title = {Fractional Cross-Validation for Optimizing Hyperparameters of Supervised Learning Algorithms},
+    journal = {Technometrics},
+    year = {2025},
+    doi = {10.1080/00401706.2025.2515926},
+}
+```
 
 ## Setting up virtual environments/ containers
 
