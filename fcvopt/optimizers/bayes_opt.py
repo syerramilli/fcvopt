@@ -93,7 +93,7 @@ class BayesOpt:
         self.initial_params = None
     
     def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
-        """Run the Bayesian optimization loop.
+        """Run the Bayesian optimization loop for a specified number of iterations.
 
         This method will perform `n_iter` iterations of model fitting, acquisition optimization, 
         and objective evaluation. The total number of configurations evaluated will be
@@ -154,6 +154,55 @@ class BayesOpt:
         results['f_inc_est'] = self.f_inc_est[-1]
 
         return results
+    
+    def optimize(self, n_trials:int, n_init:Optional[int]=None) -> Dict:
+        """Run Bayesian optimization for a fixed **total** number of trials.
+
+        Unlike :meth:`run`, which performs exactly ``n_iter`` acquisition steps,
+        this method targets a total trial budget (initial random evaluations
+        **plus** acquired candidates). It computes the number of acquisitions as:
+
+            acquisitions = n_trials - n_init + 1
+
+        where ``n_init`` is the number of initial random configurations evaluated
+        before starting Bayesian optimization. The loop then proceeds to perform
+        that many acquisitions.
+
+        Args:
+            n_trials (int):
+                Total number of objective evaluations desired, including the initial
+                random evaluations and all subsequent acquisitions. Must be ≥ 1.
+            n_init (int, optional):
+                Number of initial random configurations to evaluate before BO begins.
+                If ``None``, defaults to ``len(self.config.quant_index) + 1``.
+                Must satisfy ``1 ≤ n_init ≤ n_trials``.
+                (If ``n_init == n_trials``, exactly **one** acquisition is performed.)
+
+        Returns:
+            Dict:
+                Ordered results identical to :meth:`run`, with keys:
+                - ``'conf_inc'``: incumbent configuration,
+                - ``'f_inc_obs'``: observed objective at incumbent,
+                - ``'f_inc_est'``: model-estimated objective at incumbent.
+
+        Raises:
+            ValueError: If ``n_init`` is not in ``[1, n_trials]``.
+
+        Examples:
+            >>> # Target exactly 40 total evaluations with 8 random starts
+            >>> results = bo.optimize(n_trials=40, n_init=8)
+            >>> results['f_inc_obs']
+        """
+        # resolve n_init
+        if n_init is None:
+            n_init = len(self.config.quant_index) + 1
+
+        if not (1 <= n_init <= n_trials):
+            raise ValueError(f"n_init must be in [1, {n_trials}], got {n_init!r}")
+
+        # compute how many acquisitions to perform after initialization
+        n_iter = n_trials - n_init + 1
+        return self.run(n_iter=n_iter, n_init=n_init)
 
     @property
     def stats_keys(self) -> List:
