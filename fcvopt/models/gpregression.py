@@ -99,7 +99,7 @@ class GPR(ExactGP, GPyTorchModel, FantasizeMixin):
                 continue
             setting_closure(module,prior.expand(closure(module).shape).sample())
 
-    def predict(self, x:torch.Tensor, return_std:bool=False) -> torch.Tensor | tuple[torch.Tensor]:
+    def predict(self, x:torch.Tensor, return_std:bool=False) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         r'''Returns the predicted mean and optionally the standard deviation of the model 
         at the given input points, conditioned on the training data.
 

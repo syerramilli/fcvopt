@@ -84,7 +84,7 @@ class HGP(GPR):
     
     def forward_f(self, x:torch.Tensor) -> gpytorch.distributions.MultivariateNormal:
         r'''
-        Forward pass of the main GP `f` for :math:`f(x)` at hyperparameters x
+        Forward pass of the main GP `f` for :math:`f(x)` at x
 
         Args:
             x: A tensor of input locations with dimensions (N x D)
