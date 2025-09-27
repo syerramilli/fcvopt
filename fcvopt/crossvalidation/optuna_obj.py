@@ -1,3 +1,8 @@
+try:
+    import optuna
+except ImportError:
+    raise ImportError('Optuna must be installed to use the optuna objective wrapper')
+
 import numpy as np
 from .cvobjective import CVObjective
 from ..configspace import ConfigurationSpace,CSH
