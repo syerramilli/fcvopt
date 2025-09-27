@@ -20,7 +20,7 @@ class HammingKernel(Kernel):
         super().__init__(has_lengthscale=False,**kwargs)
         
         # register correlation parameter
-        # TODO: add support for multiple indicies
+        # TODO: add support for multiple indices
         self.register_parameter(
             name='raw_rho',
             parameter=torch.nn.Parameter(torch.randn(*self.batch_shape,1,1))
