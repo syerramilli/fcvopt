@@ -6,30 +6,61 @@ from joblib import Parallel, delayed
 from typing import Callable, List, Optional, Dict, Union
 
 class CVObjective:
-    """Base class for cross-validation objective functions.
+    """
+    Base class for cross-validation objective functions.
 
-    This class provides repeated K-fold or stratified repeated K-fold cross-validation
-    for regression and classification tasks, with options for holdout evaluation,
-    output scaling, input preprocessing, and parallel execution.
+    This class provides a framework for evaluating models via K-fold or stratified K-fold
+    cross-validation, with support for:
 
+    * Regression and classification tasks (classification labels encoded internally)
+    * Optional holdout evaluation (evaluate only the first fold)
+    * Optional per-fold output scaling (for regression)
+    * Optional per-fold input preprocessing (fitted only on training split)
+    * Parallel execution of folds
+
+    **Intended usage:**  
     Subclasses must override:
-      - construct_model(): build a model given hyperparameters.
-      - _fit_and_test(): train and evaluate the model on a single split.
+
+        - :meth:`construct_model`: Build and return a model given hyperparameters.
+        - :meth:`fit_and_test`: Fit the model on one train/test split and return a loss.
+
+    See :class:`SklearnCVObj` for an example.
+
+    The callable interface (:meth:`__call__`) runs cross-validation for a given set of
+    hyperparameters and returns either:
+
+        * A NumPy array of per-fold losses (if ``all=True``), or
+        * An aggregate (mean) loss over the selected folds (if ``all=False``).
+
+    The folds used for evaluation can be:
+
+        * All folds from the generated CV splits (default)
+        * Only the first fold (if ``holdout=True``)
+        * An explicit subset via the ``fold_idxs`` argument to :meth:`__call__`
 
     Args:
-        X: Feature data of shape (n_samples, n_features).
-        y: Target data of shape (n_samples,). Classification labels are encoded internally.
-        task: One of 'regression', 'binary_classification', or 'classification'.
-        loss_metric: Function that computes loss given (y_true, y_pred).
-        n_splits: Number of folds per cross-validation repeat. Defaults to 5.
-        n_repeats: Number of times to repeat the cross-validation. Defaults to 5.
-        holdout: If True, evaluate only the first fold. Defaults to False.
-        scale_output: If True and task='regression', standardize target values in training data.
-            Defaults to False.
-        input_preprocessor: Preprocessing transformer fit and applied per split. Defaults to None.
-        stratified: If True and task is either 'binary_classification', or 'classification', use 
-            stratified K-fold splits. Defaults to True.
-        num_jobs: Number of parallel jobs for fold evaluations. Defaults to 1.
+        X: Feature data of shape ``(n_samples, n_features)``.
+        y: Target data of shape ``(n_samples,)`` or compatible. For classification,
+            labels are encoded internally with :class:`sklearn.preprocessing.LabelEncoder`.
+        task: One of ``'regression'``, ``'binary_classification'``, or ``'classification'``.
+        loss_metric: Callable that computes a loss given ``(y_true, y_pred)``.
+        n_splits: Number of folds per CV repeat. Defaults to ``5``.
+        n_repeats: Number of CV repeats. Defaults to ``5``.
+        holdout: If ``True``, evaluate only the first fold. Defaults to ``False``.
+        scale_output: If ``True`` and ``task='regression'``, standardize target values
+            **per training fold** before fitting. Defaults to ``False``.
+        input_preprocessor: Optional scikit-learn-style transformer to fit and apply
+            **within each fold** (avoiding data leakage). Defaults to ``None``.
+        stratified: If ``True`` and ``task`` is a classification type, use stratified
+            CV splits. Defaults to ``True``.
+        num_jobs: Number of parallel jobs for fold evaluations. Defaults to ``1``.
+
+    Notes:
+        - The meaning of "loss" is determined entirely by the ``loss_metric`` you provide.
+          If you want to optimize a score where higher is better, wrap it into a loss
+          (e.g., ``lambda y, yhat: -roc_auc_score(y, yhat)``).
+        - Subclasses may choose to aggregate per-fold results differently or compute
+          additional statistics.
     """
     def __init__(
         self,
@@ -71,48 +102,81 @@ class CVObjective:
         self.num_jobs = num_jobs
 
     def construct_model(self, params: Dict, **kwargs):
-        """Construct and return a model given hyperparameters.
+        """
+        Build and return an unfitted model for a given hyperparameter configuration.
 
         Must be implemented by subclasses.
 
         Args:
-            params: Hyperparameter name to value mapping.
-            **kwargs: Additional arguments for model construction.
+            params: Mapping from hyperparameter name to value.
+            **kwargs: Optional extras a subclass may accept for construction.
+
         Returns:
-            object: An untrained model instance.
+            An unfitted model instance compatible with this objective.
+
+        Raises:
+            NotImplementedError: If the subclass does not override this method.
         """
         raise NotImplementedError("Subclasses must implement construct_model.")
 
-    def _fit_and_test(self, params: Dict, train_index: List[int], test_index: List[int]) -> float:
-        """Train the model on one split and return its loss.
+    def fit_and_test(self, params: Dict, train_index: List[int], test_index: List[int]) -> float:
+        """
+        Fit/evaluate on a single CV split and return the loss for that split.
 
-        Must be implemented by subclasses.
+        Must be implemented by subclasses. A typical implementation should:
+        
+        1) Slice ``X``/``y`` by ``train_index`` and ``test_index``.
+        2) Fit and apply ``input_preprocessor`` **on the training slice only**, then
+           transform the test slice (to avoid leakage).
+        3) If ``scale_output`` and regression task: standardize targets using **training**
+           statistics, then fit.
+        4) Train the model built by :meth:`construct_model`.
+        5) Compute and return the scalar loss via ``loss_metric``.
 
         Args:
-            params: Hyperparameter mapping for the model.
-            train_index: Indices for the training samples.
-            test_index: Indices for the testing samples.
+            params: Hyperparameter mapping for model construction.
+            train_index: Row indices for the training portion of this split.
+            test_index: Row indices for the testing portion of this split.
+
         Returns:
-            float: Loss computed by loss_metric on test data.
+            Scalar loss for this split (lower is better).
+
+        Raises:
+            NotImplementedError: If the subclass does not override this method.
         """
-        raise NotImplementedError("Subclasses must implement _fit_and_test.")
+        raise NotImplementedError("Subclasses must implement fit_and_test.")
 
     def __call__(
         self,
         params: Dict,
         fold_idxs: Optional[List[int]] = None,
         all: bool = False
-    ):
-        """Compute cross-validation loss for given hyperparameters.
+    ) -> Union[float, np.ndarray]:
+        """Evaluate a hyperparameter configuration on selected CV folds.
+
+        By default, uses all generated folds, unless this objective was created with
+        ``holdout=True`` (then only the first fold is used). You can override the default
+        by providing ``fold_idxs`` (indices into the internally stored fold list).
+
+        Computation is parallelized across folds according to ``num_jobs``.
 
         Args:
-            params: Dictionary of hyperparameters.
-            fold_idxs: Indices of folds to evaluate.
-                Defaults to all folds or first if holdout.
-            all: If True, return array of losses per fold;
-                otherwise return mean loss. Defaults to False.
+            params: Hyperparameters to pass to :meth:`construct_model`.
+            fold_idxs: Optional list of fold indices to evaluate (e.g., ``[0, 3, 4]``).
+                If omitted, uses all folds, or only the first if ``holdout=True``.
+            all: If ``True``, return the per‑fold loss array; if ``False``, return
+                the aggregate (mean) loss over the selected folds.
+
         Returns:
-            float or np.ndarray: Mean loss (if all=False) or array of per-fold losses.
+            float or ndarray: Mean loss across the selected folds (if ``all=False``),
+            otherwise an array of per‑fold losses.
+
+        Notes:
+            - The definition of "loss" is entirely determined by ``loss_metric``.
+              If you want to optimize a score where higher is better, wrap it into a loss
+              (e.g., negative score or ``1 - score``).
+            - ``fold_idxs`` refer to the order produced by the internal splitter
+              (``RepeatedKFold`` or ``RepeatedStratifiedKFold``).
         """
         # determine folds
         n_folds = self.cv.get_n_splits(self.X, self.y)

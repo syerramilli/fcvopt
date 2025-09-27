@@ -9,10 +9,15 @@ from typing import Callable, List, Optional, Dict, Union
 from ..crossvalidation.cvobjective import CVObjective
 
 class SklearnCVObj(CVObjective):
-    """Cross-validation objective for general scikit-learn estimators.
+    """Cross‑validation objective for general scikit‑learn estimators.
 
-    The estimator passed must implement `fit` and `predict`, and optionally
-    `predict_proba` if probability-based metrics are needed.
+    Wraps an unfitted scikit‑learn estimator and evaluates it using the fold infrastructure 
+    provided by :class:`CVObjective`. The estimator must implement ``fit`` and ``predict``; 
+    if you set ``needs_proba=True`` and your loss uses probabilities, it should also implement 
+    ``predict_proba``.
+
+    See :class:`CVObjective` for fold selection, aggregation behavior, and leakage
+    safeguards.
     
     Args:
         estimator: Unfitted model object conforming to scikit-learn estimator API. The estimator
@@ -58,13 +63,18 @@ class SklearnCVObj(CVObjective):
                 estimator, X, y,
                 task='binary_classification',
                 loss_metric=misclass_rate,
-                rng_seed=42,
+                n_splits=10,
+                rng_seed=42
             )
 
-            # cv loss for a set of hyperparameters
+            # 10-fold cv loss for a set of hyperparameters
             params = {'n_estimators': 100, 'max_depth': 5}
             mcr = cv_obj(params)
-            print(f'Misclassification rate for hyperparameters {params}: {mcr:.4f}')        
+            print(f'Misclassification rate for hyperparameters {params}: {mcr:.4f}')
+
+            # per-fold misclassification rates
+            fold_losses = cv_obj(params, all=True)
+            print(f'Per-fold misclassification rates for hyperparameters {params}: {fold_losses}')
     """
     def __init__(
         self,
@@ -102,13 +112,19 @@ class SklearnCVObj(CVObjective):
         self._rng = np.random.default_rng(rng_seed)
 
     def construct_model(self, params: Dict) -> BaseEstimator:
-        """Clone the scikit-learn estimator with given hyperparameters and set random state.
+        """
+        Clone the base estimator, set provided hyperparameters, and (if supported)
+        assign a deterministic ``random_state`` derived from ``rng_seed``.
+
+        Cloning ensures no state leaks across folds. A distinct, reproducible seed
+        is generated for each fit when the estimator exposes a ``random_state`` parameter.
 
         Args:
-            params: Hyperparameter name to value mapping.
+            params: Hyperparameter name → value mapping.
 
         Returns:
-            A new untrained estimator instance with the specified hyperparameters.
+            A fresh, unfitted estimator configured with ``params`` (and possibly
+            ``random_state``).
         """
         model = clone(self.estimator).set_params(**params)
         # assign reproducible seed if supported
@@ -117,24 +133,32 @@ class SklearnCVObj(CVObjective):
             model.set_params(random_state=seed)
         return model
 
-    def _fit_and_test(
+    def fit_and_test(
         self,
         params: Dict,
         train_index: List[int],
         test_index: List[int]
     ) -> float:
-        """Fit the estimator on a split and return the loss score.
+        """Fit on the training split and return the loss on the test split.
 
-        This method handles data slicing, optional preprocessing,
-        optional output scaling, model fitting, and scoring.
+        Steps performed:
+        
+        1) Slice ``X``/``y`` by the provided indices.
+        2) If ``input_preprocessor`` is set, clone + fit on **train only**, then transform
+           both train and test.
+        3) If ``scale_output`` and regression, standardize targets using **train**
+           statistics.
+        4) Build a scorer via :func:`sklearn.metrics.make_scorer`, using probabilities
+           when ``needs_proba=True``.
+        5) Fit the estimator and compute loss on the test slice.
 
         Args:
-            params: Hyperparameters for the model.
-            train_index: Indices for training samples.
-            test_index: Indices for testing samples.
+            params: Hyperparameters forwarded to :meth:`construct_model`.
+            train_index: Row indices for the training portion of this split.
+            test_index: Row indices for the testing portion of this split.
 
         Returns:
-            Loss computed by the configured loss_metric.
+            Scalar loss for this split (lower is better).
         """
         model = self.construct_model(params)
 
@@ -170,21 +194,50 @@ class SklearnCVObj(CVObjective):
         return scorer(model, X_test, y_test)
 
 class XGBoostCVObjEarlyStopping(SklearnCVObj):
-    """Cross-validation objective with early stopping for XGBoost models (
-    scikit-learn API).
+    """Cross‑validation objective with per‑fold early stopping for XGBoost
+    (scikit‑learn API).
 
-    Extends :class:`SklearnCVObj` to include a validation split within each CV fold
-    for early stopping based on the loss metric. If early stopping is not required,
-    use :class:`SklearnCVObj` directly.
+    Extends :class:`SklearnCVObj` by creating an **internal validation split within
+    each training fold** and supplying it to XGBoost via ``eval_set`` together with
+    ``early_stopping_rounds``. The outer test fold remains untouched, providing a
+    clean generalization estimate.
+
+    Requirements:
+        The estimator must be an XGBoost model using the sklearn API
+        (e.g., ``xgboost.XGBClassifier`` / ``xgboost.XGBRegressor``) and accept
+        ``early_stopping_rounds`` and ``eval_set`` in ``fit``.
 
     Args:
-        early_stopping_rounds (int):
-            Number of rounds without improvement before stopping.
-        validation_split (float, optional):
-            Fraction of fold training data held out for early stopping. Defaults to 0.1.
-        **kwargs: Passed through to the SklearnCVObj initializer, including:
-            - estimator: XGBoost regressor or classifier
-            - X, y, task, loss_metric, and CV settings
+        early_stopping_rounds: Number of rounds without improvement on the inner
+            validation split before stopping.
+        validation_split: Fraction of each training fold held out for early stopping.
+        **kwargs: Forwarded to :class:`SklearnCVObj` (e.g., ``estimator``, ``X``, ``y``,
+            ``task``, ``loss_metric``, CV settings, etc.).
+
+    Notes:
+        * Stratification for the inner validation split is enabled when
+          ``stratified=True`` and the task is classification.
+        * Choose a sufficiently large ``n_estimators``; early stopping will truncate it.
+
+    Example:
+        .. code-block:: python
+
+            from xgboost import XGBClassifier
+
+            est = XGBClassifier(n_estimators=2000, tree_method="hist")
+
+            cv_obj = XGBoostCVObjEarlyStopping(
+                estimator=est,
+                X=X, y=y,
+                task='binary_classification',
+                loss_metric=misclass_rate,
+                early_stopping_rounds=50,
+                validation_split=0.2,
+                rng_seed=123,
+            )
+
+            params = {'max_depth': 6, 'learning_rate': 0.05, 'subsample': 0.9}
+            loss = cv_obj(params)
     """
     def __init__(
         self,
@@ -196,7 +249,7 @@ class XGBoostCVObjEarlyStopping(SklearnCVObj):
         self.early_stopping_rounds = early_stopping_rounds
         self.validation_split = validation_split
 
-    def _fit_and_test(
+    def fit_and_test(
         self,
         params: Dict,
         train_index: List[int],
