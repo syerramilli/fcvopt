@@ -1,6 +1,6 @@
 import os, time, json, warnings, joblib, random
 from collections import OrderedDict
-from typing import Optional, Dict, List, Tuple, Callable
+from typing import Optional, Dict, List, Tuple, Callable, Any
 
 import numpy as np
 import torch
@@ -323,6 +323,104 @@ class BayesOpt:
                 })
             mlflow.set_tag("status", "completed")
             mlflow.end_run()
+
+    def get_optimization_results(self) -> List[Dict[str, Any]]:
+        """Retrieve detailed optimization results for all iterations.
+
+        Returns a comprehensive summary of the optimization process, including
+        incumbent configurations, observed values, and model predictions with
+        uncertainty estimates for each iteration.
+
+        Returns:
+            List[Dict[str, Any]]: List of dictionaries, one per iteration, with keys:
+                - 'iteration' (int): Iteration number (0-based)
+                - 'incumbent_config' (dict): Best configuration found so far
+                - 'observed_value' (float): Actual observed objective value at incumbent
+                - 'predicted_value' (float): Model's predicted value at incumbent
+                - 'predicted_std' (float): Model's prediction uncertainty (standard deviation)
+
+        Raises:
+            RuntimeError: If no optimization has been performed yet or model is unavailable.
+
+        Examples:
+            >>> bo = BayesOpt(obj=objective, config=config_space)
+            >>> bo.run(n_iter=5)
+            >>> results = bo.get_optimization_results()
+            >>>
+            >>> # Access results for each iteration
+            >>> for result in results:
+            ...     print(f"Iteration {result['iteration']}:")
+            ...     print(f"  Best config: {result['incumbent_config']}")
+            ...     print(f"  Observed: {result['observed_value']:.4f}")
+            ...     print(f"  Predicted: {result['predicted_value']:.4f} ± {result['predicted_std']:.4f}")
+            ...
+            >>> # Get final result
+            >>> final_result = results[-1]
+            >>> best_config = final_result['incumbent_config']
+            >>> best_value = final_result['observed_value']
+        """
+        import warnings
+
+        if not hasattr(self, 'train_confs') or not self.train_confs:
+            raise RuntimeError("No optimization performed yet. Call run() first.")
+
+        if self.model is None:
+            raise RuntimeError("Model is not available. Ensure optimization has been performed.")
+
+        # Prepare results list
+        results = []
+
+        # Get iteration data from MLflow artifacts if available
+        iteration_data = self._get_iteration_data_from_artifacts()
+
+        # If no iteration data from artifacts, construct from current state
+        if not iteration_data:
+            iteration_data = self._construct_iteration_data_from_state()
+
+        # Generate predictions with uncertainty for each iteration's incumbent
+        for i, iter_data in enumerate(iteration_data):
+            incumbent_config = iter_data['incumbent_config']
+            observed_value = iter_data['observed_value']
+
+            # Convert config to model input format
+            if isinstance(incumbent_config, dict):
+                config_array = self._config_dict_to_array(incumbent_config)
+            else:
+                # Assume it's already a Configuration object
+                config_array = incumbent_config.get_array()
+
+            # Get model prediction with uncertainty
+            try:
+                with warnings.catch_warnings(), torch.no_grad():
+                    warnings.simplefilter(action='ignore', category=gpytorch.utils.warnings.GPInputWarning)
+
+                    # Prepare input tensor
+                    x_tensor = torch.from_numpy(config_array).double().unsqueeze(0)
+
+                    # Get prediction with standard deviation
+                    pred_mean, pred_std = self.model.predict(x_tensor, return_std=True)
+                    predicted_mean = float(self.sign_mul * pred_mean.item())
+                    predicted_std = float(pred_std.item())
+
+            except Exception as e:
+                # Fallback: use observed value as prediction with zero uncertainty
+                predicted_mean = observed_value
+                predicted_std = 0.0
+                if hasattr(self, 'verbose') and self.verbose >= 1:
+                    print(f"Warning: Could not get model prediction for iteration {i}: {e}")
+
+            # Create result dictionary with intuitive names
+            result = {
+                'iteration': i,
+                'incumbent_config': incumbent_config if isinstance(incumbent_config, dict) else dict(incumbent_config),
+                'observed_value': float(observed_value),
+                'predicted_value': predicted_mean,
+                'predicted_std': predicted_std
+            }
+
+            results.append(result)
+
+        return results
 
     def __enter__(self):
         """Context manager entry.
@@ -856,6 +954,90 @@ class BayesOpt:
         # Log to MLflow. The artifact will be saved as checkpoints/<fname>
         self._ensure_mlflow_active()
         mlflow.log_artifact(local_path, artifact_path="checkpoints")
+
+    def _get_iteration_data_from_artifacts(self) -> List[Dict[str, Any]]:
+        """Retrieve iteration data from MLflow artifacts if available."""
+        if not self._mlflow_initialized:
+            return []
+
+        try:
+            from mlflow.tracking import MlflowClient
+            client = MlflowClient()
+
+            # List iteration artifacts
+            try:
+                iter_artifacts = client.list_artifacts(self._run_id, path="iterations")
+                iter_files = [item.path for item in iter_artifacts if item.path.endswith('.json')]
+            except:
+                return []
+
+            if not iter_files:
+                return []
+
+            # Download and parse iteration files
+            iteration_data = []
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                for iter_file in sorted(iter_files):
+                    try:
+                        file_path = client.download_artifacts(self._run_id, iter_file, dst_path=tmp_dir)
+                        with open(file_path, 'r') as f:
+                            data = json.load(f)
+                            if 'conf_inc' in data and 'f_inc_obs' in data:
+                                iteration_data.append({
+                                    'incumbent_config': data['conf_inc'],
+                                    'observed_value': data['f_inc_obs']
+                                })
+                    except Exception:
+                        continue
+
+            return iteration_data
+
+        except Exception:
+            return []
+
+    def _construct_iteration_data_from_state(self) -> List[Dict[str, Any]]:
+        """Construct iteration data from current optimizer state when artifacts unavailable."""
+        if not hasattr(self, 'train_confs') or not self.train_confs:
+            return []
+
+        # Reconstruct per-iteration incumbents by simulating the optimization process
+        iteration_data = []
+
+        # For each evaluation point, find the best configuration seen so far
+        best_value = float('inf') if self.minimize else float('-inf')
+        best_config = None
+
+        for i, (config, value) in enumerate(zip(self.train_confs, self.train_y.numpy())):
+            # train_y stores original objective values (not sign-multiplied)
+            original_value = float(value)
+
+            # Check if this is a new best
+            is_improvement = (
+                (self.minimize and original_value < best_value) or
+                (not self.minimize and original_value > best_value)
+            )
+
+            if is_improvement or best_config is None:
+                best_value = original_value
+                best_config = config
+
+            # Add iteration data
+            iteration_data.append({
+                'incumbent_config': dict(best_config) if hasattr(best_config, 'keys') else best_config,
+                'observed_value': best_value
+            })
+
+        return iteration_data
+
+    def _config_dict_to_array(self, config_dict: Dict[str, Any]) -> np.ndarray:
+        """Convert configuration dictionary to array format for model input."""
+        # Create Configuration object and get array
+        if hasattr(self, 'config'):
+            config_obj = Configuration(self.config, config_dict)
+            return config_obj.get_array()
+        else:
+            # Fallback: convert based on known order (may not work in all cases)
+            return np.array(list(config_dict.values()))
 
     # --------------------------- core methods --------------------------- #
     def _initialize(self, n_init: Optional[int]):
