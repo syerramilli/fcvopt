@@ -254,27 +254,30 @@ class BayesOpt:
         return results
     
     def optimize(self, n_trials:int, n_init:Optional[int]=None) -> Dict:
-        """Run Bayesian optimization for a fixed **total** number of trials.
+        """Run Bayesian optimization for a specified number of trials in this call.
 
-        Unlike :meth:`run`, which performs exactly ``n_iter`` acquisition steps,
-        this method targets a total trial budget (initial random evaluations
-        **plus** acquired candidates). It computes the number of acquisitions as:
+        This method treats ``n_trials`` as the number of evaluations to perform
+        **in this specific call**, making it suitable for both initial runs and
+        continuation runs from restored optimizers.
 
-            acquisitions = n_trials - n_init + 1
+        For initial runs, it evaluates ``n_trials`` total configurations:
+        ``n_init`` random initializations followed by ``n_trials - n_init``
+        acquisition-guided evaluations.
 
-        where ``n_init`` is the number of initial random configurations evaluated
-        before starting Bayesian optimization. The loop then proceeds to perform
-        that many acquisitions.
+        For continuation runs (when optimization has already been started), it
+        performs exactly ``n_trials`` additional evaluations via acquisition,
+        ignoring the ``n_init`` parameter.
 
         Args:
             n_trials (int):
-                Total number of objective evaluations desired, including the initial
-                random evaluations and all subsequent acquisitions. Must be ≥ 1.
+                Number of objective evaluations to perform in this call.
+                For initial runs, includes both random and acquisition-guided trials.
+                For continuation runs, specifies additional acquisition-guided trials.
+                Must be positive.
             n_init (int, optional):
-                Number of initial random configurations to evaluate before BO begins.
-                If ``None``, defaults to ``len(self.config.quant_index) + 1``.
-                Must satisfy ``1 ≤ n_init ≤ n_trials``.
-                (If ``n_init == n_trials``, exactly **one** acquisition is performed.)
+                Number of initial random configurations for the first call only.
+                If ``None`` on initial run, defaults to ``len(self.config.quant_index) + 1``.
+                Ignored and warned about for continuation runs.
 
         Returns:
             Dict:
@@ -284,23 +287,61 @@ class BayesOpt:
                 - ``'f_inc_est'``: model-estimated objective at incumbent.
 
         Raises:
-            ValueError: If ``n_init`` is not in ``[1, n_trials]``.
+            ValueError: If ``n_trials`` is not positive or invalid ``n_init`` for initial runs.
 
         Examples:
-            >>> # Target exactly 40 total evaluations with 8 random starts
-            >>> results = bo.optimize(n_trials=40, n_init=8)
-            >>> results['f_inc_obs']
+            >>> # Initial run: 15 total evaluations (3 random + 12 acquisitions)
+            >>> results = bo.optimize(n_trials=15, n_init=3)
+            >>> len(bo.train_confs)  # Should be 15
+
+            >>> # Continuation: 10 more evaluations (all acquisitions)
+            >>> results = bo.optimize(n_trials=10)  # n_init ignored
+            >>> len(bo.train_confs)  # Should be 25 (15 + 10)
+
+            >>> # Another continuation: 5 more evaluations
+            >>> results = bo.optimize(n_trials=5)
+            >>> len(bo.train_confs)  # Should be 30 (25 + 5)
         """
-        # resolve n_init
-        if n_init is None:
-            n_init = len(self.config.quant_index) + 1
+        if n_trials <= 0:
+            raise ValueError(f"n_trials must be positive, got {n_trials}")
 
-        if not (1 <= n_init <= n_trials):
-            raise ValueError(f"n_init must be in [1, {n_trials}], got {n_init!r}")
+        # Check if this is a continuation run
+        is_continuation = self.train_confs is not None
 
-        # compute how many acquisitions to perform after initialization
-        n_iter = n_trials - n_init + 1
-        return self.run(n_iter=n_iter, n_init=n_init)
+        if is_continuation:
+            # For continuation runs, perform n_trials additional acquisitions
+            if n_init is not None and self.verbose >= 1:
+                print(f"Warning: n_init={n_init} ignored for continuation run")
+
+            # Perform n_trials acquisition steps
+            n_iter = n_trials
+            # Call run and then evaluate any remaining pending candidates to ensure we get exactly n_trials evaluations
+            initial_count = len(self.train_confs)
+            results = self.run(n_iter=n_iter, n_init=None)
+
+            # Check if we have pending candidates that need evaluation to reach exactly n_trials more
+            if len(self.train_confs) - initial_count < n_trials and self._pending_candidates:
+                # Evaluate the final pending candidates
+                self._initialize(n_init=None)
+                # Update incumbent after final evaluation
+                self._fit_model_and_find_inc(self._total_iterations)
+                # Update results
+                results['conf_inc'] = self.curr_conf_inc
+                results['f_inc_obs'] = self.curr_f_inc_obs
+                results['f_inc_est'] = self.curr_f_inc_est
+
+            return results
+        else:
+            # Initial run: use original logic
+            if n_init is None:
+                n_init = len(self.config.quant_index) + 1
+
+            if not (1 <= n_init <= n_trials):
+                raise ValueError(f"n_init must be in [1, {n_trials}], got {n_init!r}")
+
+            # compute how many acquisitions to perform after initialization
+            n_iter = n_trials - n_init + 1
+            return self.run(n_iter=n_iter, n_init=n_init)
 
     def end_run(self):
         """Manually end the MLflow run.
