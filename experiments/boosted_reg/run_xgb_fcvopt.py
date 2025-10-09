@@ -92,12 +92,8 @@ opt = FCVOpt(
     fold_selection_criterion='variance_reduction',
     fold_initialization='stratified',
     config=config,
-    save_iter=10,
-    save_dir = save_dir,
     verbose=2,
     **acq_args
 )
 
 out = opt.run(args.n_iter,n_init=args.n_init)
-# save to disk
-opt.save_to_file(save_dir)

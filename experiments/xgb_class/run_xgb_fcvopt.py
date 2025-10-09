@@ -103,8 +103,6 @@ if args.acq.startswith('mtbo'):
         n_folds=cvobj.cv.get_n_splits(),
         fold_initialization='stratified',
         config=config,
-        save_iter=10,
-        save_dir = save_dir,
         verbose=2,
         constant_task_corr=constant_task_corr,
         n_jobs=-1
@@ -124,40 +122,9 @@ else:
         fold_selection_criterion='variance_reduction',
         fold_initialization='stratified',
         config=config,
-        save_iter=10,
-        save_dir = save_dir,
         verbose=1,
         n_jobs=-1,
         **acq_args
     )
 
-training_path = os.path.join(save_dir,'model_train.pt')
-iters_to_run = args.n_iter
-if os.path.exists(training_path):
-    # resume progress from last time
-    # load saved progress
-    training = torch.load(os.path.join(save_dir,'model_train.pt'))
-    for k,v in training.items():
-        setattr(opt,k,v)
-
-    opt.train_confs = [
-        config.get_conf_from_array(x.numpy()) for x in training['train_x']
-    ]
-
-    # load stat objects
-    stats = joblib.load(os.path.join(save_dir,'stats.pkl'))
-    for k,v in stats.items():
-        setattr(opt,k,v)
-
-    # run the remaining iterations
-    num_iters_completed = len(opt.f_inc_est)
-    iters_to_run = args.n_iter-num_iters_completed
-    
-
-if iters_to_run > 0:
-    # run the optimization
-    out = opt.run(iters_to_run, n_init=args.n_init)
-    # save to disk
-    opt.save_to_file(save_dir)
-else:
-    print(f'Already completed {args.n_iter} iterations, skipping...')
+out = opt.run(args.n_iter, n_init=args.n_init)
