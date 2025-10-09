@@ -907,7 +907,7 @@ class BayesOpt:
         # Don't call _ensure_mlflow_active here to avoid recursion
         mlflow.log_dict(self.config.to_serialized_dict(), artifact_file="config_space.json")
 
-    def _log_eval(self, conf: Configuration, x: np.ndarray, y: float, eval_time: float):
+    def _log_eval(self, conf: Configuration, x: np.ndarray, y: float, eval_time: float, **kwargs):
         """Log a single evaluation as a JSON artifact.
 
         Records evaluation details as a JSON file without large tensors for efficient storage.
@@ -917,6 +917,7 @@ class BayesOpt:
             x: Numeric array representation of the configuration.
             y: Objective function value.
             eval_time: Time taken to evaluate the configuration.
+            **kwargs: Additional key-value pairs to include in the evaluation log.
         """
         self._ensure_mlflow_active()
         idx = self._n_evals
@@ -927,8 +928,20 @@ class BayesOpt:
             "y": float(y),
             "eval_time": float(eval_time),
         }
+        # Add any additional information from kwargs
+        payload.update(kwargs)
         mlflow.log_dict(payload, artifact_file=f"evals/eval_{idx:03d}.json")
         self._n_evals += 1
+
+    def _format_candidate_configs(self):
+        """Format candidate configurations for logging.
+
+        Subclasses can override this to add additional information like fold indices.
+
+        Returns:
+            List: Formatted candidate configurations.
+        """
+        return [dict(c) for c in (self.curr_conf_cand or [])]
 
     def _log_iteration_snapshot(self, i: int):
         """
@@ -957,7 +970,7 @@ class BayesOpt:
         snapshot = {
             "iter": int(i),
             "conf_inc": (dict(self.curr_conf_inc) if self.curr_conf_inc else None),
-            "conf_cand": [dict(c) for c in (self.curr_conf_cand or [])],
+            "conf_cand": self._format_candidate_configs(),
             "metrics": metrics,
         }
         mlflow.log_dict(snapshot, artifact_file=f"iterations/iter_{i:03d}.json")
@@ -1048,7 +1061,7 @@ class BayesOpt:
         best_value = float('inf') if self.minimize else float('-inf')
         best_config = None
 
-        for i, (config, value) in enumerate(zip(self.train_confs, self.train_y.numpy())):
+        for _, (config, value) in enumerate(zip(self.train_confs, self.train_y.numpy())):
             # train_y stores original objective values (not sign-multiplied)
             original_value = float(value)
 
@@ -1214,33 +1227,41 @@ class BayesOpt:
             train_y = self.sign_mul*self.train_y,
         ).double()
     
-    def _acquisition(self, i: int) -> None:
-        """Optimize acquisition function to propose next candidate(s).
+    def _create_acquisition_function(self):
+        """Create the acquisition function based on the configured type.
 
-        Creates the appropriate acquisition function based on the configured type,
-        optimizes it to find the most promising configuration(s), and stores them
-        as pending candidates for evaluation.
-
-        Args:
-            i: Current iteration number for logging.
+        Returns:
+            Acquisition function object ready for optimization.
 
         Raises:
             ValueError: If an unknown acquisition function is specified.
         """
         if self.acq_function == 'EI':
             best_f = -self.curr_f_inc_est if self.minimize else self.curr_f_inc_est
-            acqobj = (qExpectedImprovement(self.model, best_f, sampler=SobolQMCNormalSampler(128, seed=0))
-                      if self.batch_acquisition else ExpectedImprovement(self.model, best_f))
+            return (qExpectedImprovement(self.model, best_f, sampler=SobolQMCNormalSampler(128, seed=0))
+                    if self.batch_acquisition else ExpectedImprovement(self.model, best_f))
         elif self.acq_function == 'LCB':
             beta = torch.tensor(4.0, dtype=torch.double)
-            acqobj = (qUpperConfidenceBound(self.model, beta, sampler=SobolQMCNormalSampler(128, seed=0))
-                      if self.batch_acquisition else UpperConfidenceBound(self.model, beta))
+            return (qUpperConfidenceBound(self.model, beta, sampler=SobolQMCNormalSampler(128, seed=0))
+                    if self.batch_acquisition else UpperConfidenceBound(self.model, beta))
         elif self.acq_function == 'KG':
             num_fantasies = 32
-            acqobj = qKnowledgeGradient(self.model, sampler=SobolQMCNormalSampler(num_fantasies, seed=0),
-                                        num_fantasies=num_fantasies)
+            return qKnowledgeGradient(self.model, sampler=SobolQMCNormalSampler(num_fantasies, seed=0),
+                                      num_fantasies=num_fantasies)
         else:
             raise ValueError(f"Unknown acquisition function: {self.acq_function}")
+
+    def _select_next_candidates(self, i: int):
+        """Optimize acquisition function to select next candidate configurations.
+
+        Args:
+            i: Current iteration number for logging.
+
+        Returns:
+            List[Configuration]: Selected candidate configurations.
+        """
+        del i  # Silence unused parameter warning
+        acqobj = self._create_acquisition_function()
 
         t0 = time.time()
         new_x, max_acq = _optimize_botorch_acqf(
@@ -1255,10 +1276,23 @@ class BayesOpt:
 
         xs = [row for row in (new_x if not torch.is_tensor(new_x) else list(new_x))]
         cand_confs = [self.config.get_conf_from_array(x.detach().cpu().numpy()) for x in xs]
+        self.curr_acq_val = float((-max_acq.item()) if self.acq_function == 'LCB' else max_acq.item())
+
+        return cand_confs
+
+    def _acquisition(self, i: int) -> None:
+        """Optimize acquisition function to propose next candidate(s).
+
+        Creates the appropriate acquisition function based on the configured type,
+        optimizes it to find the most promising configuration(s), and stores them
+        as pending candidates for evaluation.
+
+        Args:
+            i: Current iteration number for logging.
+        """
+        cand_confs = self._select_next_candidates(i)
         self.curr_conf_cand = cand_confs
         self._pending_candidates = cand_confs
-
-        self.curr_acq_val = float((-max_acq.item()) if self.acq_function == 'LCB' else max_acq.item())
 
         # log scalar metrics only
         self._log_iteration_snapshot(i)
