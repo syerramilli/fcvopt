@@ -126,3 +126,65 @@ class ConfigurationSpace(CS.ConfigurationSpace):
 
         # Convert to Configuration objects
         return [self.get_conf_from_array(row) for row in samples]
+
+    def to_serialized_dict(self) -> dict:
+        """Serialize the configuration space to a dictionary for MLflow logging.
+
+        Returns:
+            dict: Serialized configuration space that can be saved as JSON.
+        """
+        # Use ConfigSpace's built-in serialization
+        serialized = super().to_serialized_dict()
+
+        # Add our custom attributes if they exist
+        custom_attrs = {}
+        if hasattr(self, 'quant_index'):
+            custom_attrs['quant_index'] = self.quant_index
+        if hasattr(self, 'quant_names'):
+            custom_attrs['quant_names'] = self.quant_names
+        if hasattr(self, 'qual_index'):
+            custom_attrs['qual_index'] = self.qual_index
+        if hasattr(self, 'qual_names'):
+            custom_attrs['qual_names'] = self.qual_names
+        if hasattr(self, 'num_levels'):
+            custom_attrs['num_levels'] = dict(self.num_levels)
+        if hasattr(self, 'ndim'):
+            custom_attrs['ndim'] = self.ndim
+
+        serialized['_fcvopt_attrs'] = custom_attrs
+        return serialized
+
+    @classmethod
+    def from_dict(cls, serialized_dict: dict) -> "ConfigurationSpace":
+        """Reconstruct a ConfigurationSpace from a serialized dictionary.
+
+        Args:
+            serialized_dict: Dictionary containing serialized configuration space.
+
+        Returns:
+            ConfigurationSpace: Reconstructed configuration space.
+        """
+        # Make a copy to avoid modifying the original
+        serialized_copy = serialized_dict.copy()
+
+        # Extract custom attributes
+        custom_attrs = serialized_copy.pop('_fcvopt_attrs', {})
+
+        # Create ConfigurationSpace from base serialization using parent class method
+        config_space = CS.ConfigurationSpace.from_serialized_dict(serialized_copy)
+
+        # Convert to our extended class
+        # Don't try to extract seed from the original space, use None
+        extended_space = cls(seed=None)
+        for hp in config_space.values():
+            extended_space.add(hp)
+
+        # Restore custom attributes
+        for attr_name, attr_value in custom_attrs.items():
+            if attr_name == 'num_levels':
+                # Convert back to OrderedDict with int keys
+                setattr(extended_space, attr_name, OrderedDict((int(k), v) for k, v in attr_value.items()))
+            else:
+                setattr(extended_space, attr_name, attr_value)
+
+        return extended_space
