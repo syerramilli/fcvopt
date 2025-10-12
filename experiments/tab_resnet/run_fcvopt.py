@@ -106,6 +106,7 @@ if args.acq == 'mtbo':
         fold_initialization='stratified',
         config=config,
         verbose=2,
+        tracking_dir=save_dir
     )
     
 else:
@@ -123,6 +124,7 @@ else:
         fold_initialization='stratified',
         config=config,
         verbose=2,
+        tracking_dir=save_dir,
         **acq_args
     )
 

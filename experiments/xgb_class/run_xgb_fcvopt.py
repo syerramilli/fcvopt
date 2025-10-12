@@ -105,7 +105,8 @@ if args.acq.startswith('mtbo'):
         config=config,
         verbose=2,
         constant_task_corr=constant_task_corr,
-        n_jobs=-1
+        n_jobs=-1,
+        tracking_dir=save_dir
     )
     
 else:
@@ -124,6 +125,7 @@ else:
         config=config,
         verbose=1,
         n_jobs=-1,
+        tracking_dir=save_dir,
         **acq_args
     )
 
