@@ -185,7 +185,7 @@ class CVObjective:
 
         # compute losses in parallel
         losses = Parallel(n_jobs=self.num_jobs)(
-            delayed(self._fit_and_test)(
+            delayed(self.fit_and_test)(
                 params,
                 self.train_test_splits[i][0],
                 self.train_test_splits[i][1]
