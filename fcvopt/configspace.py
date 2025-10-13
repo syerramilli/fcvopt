@@ -2,7 +2,7 @@ import numpy as np
 import ConfigSpace as CS
 import ConfigSpace.hyperparameters as CSH
 from collections import OrderedDict
-from typing import List
+from typing import List, Optional, Any
 
 class ConfigurationSpace(CS.ConfigurationSpace):
     """Extended ConfigurationSpace for FCVOpt optimizers.
@@ -127,12 +127,17 @@ class ConfigurationSpace(CS.ConfigurationSpace):
         # Convert to Configuration objects
         return [self.get_conf_from_array(row) for row in samples]
 
-    def to_serialized_dict(self) -> dict:
+    def to_serialized_dict(self, encoders:Optional[Any] = None) -> dict:
         """Serialize the configuration space to a dictionary for MLflow logging.
 
         Returns:
             dict: Serialized configuration space that can be saved as JSON.
         """
+        if encoders is not None:
+            # Use ConfigSpace's built-in serialization with custom encoders
+            return super().to_serialized_dict(encoders=encoders)
+        
+        # Otherwise, use default serialization and add our custom attributes
         # Use ConfigSpace's built-in serialization
         serialized = super().to_serialized_dict()
 
