@@ -15,6 +15,17 @@ from pathlib import Path
 import logging
 logging.disable(logging.CRITICAL)
 
+# Import MLflow for loading new format data
+try:
+    import mlflow
+    from mlflow.tracking import MlflowClient
+    import tempfile
+    import json
+    MLFLOW_AVAILABLE = True
+except ImportError:
+    MLFLOW_AVAILABLE = False
+    print("Warning: MLflow not available. Only old format (stats.pkl) will be supported.")
+
 #%%
 parser = argparse.ArgumentParser(description='Generate figures from results')
 parser.add_argument('--runs_dir', type=str, required=True)
@@ -106,21 +117,66 @@ config.generate_indices()
 
 #%% Function for loading results
 
+def load_mlflow_confs(seed_dir):
+    """Load incumbent configurations from MLflow artifacts."""
+    if not MLFLOW_AVAILABLE:
+        return None
+
+    try:
+        # Find MLflow artifacts by scanning for directory containing artifacts
+        for root, dirs, files in os.walk(seed_dir):
+            if 'artifacts' in dirs:
+                artifacts_dir = os.path.join(root, 'artifacts')
+                iterations_dir = os.path.join(artifacts_dir, 'iterations')
+
+                if os.path.exists(iterations_dir):
+                    # Load iteration files and extract incumbent configurations
+                    iteration_files = [f for f in os.listdir(iterations_dir) if f.startswith('iter_') and f.endswith('.json')]
+                    iteration_files.sort()  # Ensure chronological order
+
+                    confs_inc = []
+                    for iter_file in iteration_files:
+                        iter_path = os.path.join(iterations_dir, iter_file)
+                        with open(iter_path, 'r') as f:
+                            iter_data = json.load(f)
+
+                        # Extract incumbent configuration from iteration
+                        if 'conf_inc' in iter_data:
+                            conf_dict = iter_data['conf_inc']
+                            conf = Configuration(config, values=conf_dict)
+                            confs_inc.append(conf)
+
+                    return confs_inc if confs_inc else None
+
+        return None
+
+    except Exception as e:
+        print(f"Error loading MLflow data from {seed_dir}: {e}")
+        return None
+
 def load_confs(save_dir,algorithm='inhouse'):
     folders = sorted(os.listdir(save_dir))
     out = []
     for folder in folders:
         try:
+            folder_path = os.path.join(save_dir, folder)
+
             if algorithm == 'inhouse':
-                tmp = joblib.load(os.path.join(
-                    save_dir,folder,'stats.pkl'
-                ))['confs_inc']
-                
+                # First try to load from MLflow format
+                mlflow_confs = load_mlflow_confs(folder_path)
+                if mlflow_confs is not None:
+                    tmp = mlflow_confs
+                else:
+                    # Fall back to old stats.pkl format
+                    tmp = joblib.load(os.path.join(
+                        folder_path,'stats.pkl'
+                    ))['confs_inc']
+
             elif algorithm == 'optuna':
                 study = joblib.load(os.path.join(
                     save_dir,folder,'study.pkl'
                 ))
-                
+
                 best_loss = np.inf
                 tmp = []
                 for trial in study.trials:
@@ -129,26 +185,26 @@ def load_confs(save_dir,algorithm='inhouse'):
                     else:
                         tmp.append(Configuration(config,values=trial.params))
                         best_loss = trial.values[0]
-                        
+
                 tmp = tmp[9:]
-                
+
             elif algorithm == 'SMAC':
                 full_path = os.path.join(save_dir,folder)
                 subfolder = os.listdir(full_path)[0]
-                
+
                 final_path = Path(full_path,subfolder,'0')
-                
+
                 scenario = Scenario.load(final_path)
-                
+
                 runhistory = RunHistory()
                 runhistory.load(final_path/'runhistory.json',configspace=scenario.configspace)
-                
+
                 id_configs = {v:k for k,v in runhistory.config_ids.items()}
-                
+
                 intensifier = Intensifier(scenario)
                 intensifier._runhistory = runhistory
                 intensifier.load(final_path/'intensifier.json')
-                
+
                 trial_history = []
                 trial_updates = []
                 for t in intensifier.trajectory:
@@ -156,13 +212,13 @@ def load_confs(save_dir,algorithm='inhouse'):
                     trial_updates.append(t.trial)
 
                 reps = np.diff(np.concatenate([trial_updates,[scenario.n_trials+1]]))
-                    
+
                 tmp = []
                 for i,conf in enumerate(trial_history):
                     tmp.extend([conf]*reps[i])
-                
+
                 tmp = tmp[9:]
-                
+
             out.append(tmp)
         except Exception as e:
             print(e)
