@@ -83,14 +83,14 @@ class BayesOpt:
         >>>
         >>> # Run optimization
         >>> bo = BayesOpt(obj=objective, config=cs)
-        >>> results = bo.run(n_iter=10)
-        >>> print(f"Best config: {results['conf_inc']}")
-        >>> print(f"Best value: {results['f_inc_obs']}")
+        >>> best_config = bo.run(n_iter=10)
+        >>> print(f"Best config: {best_config}")
+        >>> print(f"Best value: {bo.curr_f_inc_obs}")
 
         Continuing optimization:
 
         >>> # Continue with more iterations
-        >>> results = bo.run(n_iter=5)  # MLflow run will be reactivated
+        >>> best_config = bo.run(n_iter=5)  # MLflow run will be reactivated
     """
     def __init__(
         self,
@@ -163,7 +163,7 @@ class BayesOpt:
         _set_seed(seed)
 
     # ========================== PUBLIC API ========================== #
-    def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
+    def run(self,n_iter:int,n_init:Optional[int]=None) -> Configuration:
         """Run BO for exactly `n_iter` acquisition steps.
 
         If this is the first call, initializes the optimizer with n_init random points.
@@ -176,7 +176,7 @@ class BayesOpt:
                 Ignored on subsequent calls.
 
         Returns:
-            Dict: Results containing incumbent configuration and objective values.
+            Configuration: Best configuration found so far.
         """
         # Check if this is a continuation
         is_continuation = self.train_confs is not None
@@ -247,13 +247,9 @@ class BayesOpt:
             mlflow.set_tag("status", "completed")
             mlflow.end_run()
 
-        results = OrderedDict()
-        results['conf_inc'] = self.curr_conf_inc
-        results['f_inc_obs'] = self.curr_f_inc_obs
-        results['f_inc_est'] = self.curr_f_inc_est
-        return results
+        return self.curr_conf_inc
     
-    def optimize(self, n_trials:int, n_init:Optional[int]=None) -> Dict:
+    def optimize(self, n_trials:int, n_init:Optional[int]=None) -> Configuration:
         """Run Bayesian optimization for a specified number of trials in this call.
 
         This method treats ``n_trials`` as the number of evaluations to perform
@@ -280,27 +276,22 @@ class BayesOpt:
                 Ignored and warned about for continuation runs.
 
         Returns:
-            Dict:
-                Ordered results identical to :meth:`run`, with keys:
-                - ``'conf_inc'``: incumbent configuration,
-                - ``'f_inc_obs'``: observed objective at incumbent,
-                - ``'f_inc_est'``: model-estimated objective at incumbent.
+            Configuration: Best configuration found so far.
 
         Raises:
             ValueError: If ``n_trials`` is not positive or invalid ``n_init`` for initial runs.
 
         Examples:
             >>> # Initial run: 15 total evaluations (3 random + 12 acquisitions)
-            >>> results = bo.optimize(n_trials=15, n_init=3)
+            >>> best_config = bo.optimize(n_trials=15, n_init=3)
             >>> len(bo.train_confs)  # Should be 15
 
             >>> # Continuation: 10 more evaluations (all acquisitions)
-            >>> results = bo.optimize(n_trials=10)  # n_init ignored
+            >>> best_config = bo.optimize(n_trials=10)  # n_init ignored
             >>> len(bo.train_confs)  # Should be 25 (15 + 10)
 
             >>> # Another continuation: 5 more evaluations
-            >>> results = bo.optimize(n_trials=5)
-            >>> len(bo.train_confs)  # Should be 30 (25 + 5)
+            >>> best_config = bo.optimize(n_trials=5)
         """
         if n_trials <= 0:
             raise ValueError(f"n_trials must be positive, got {n_trials}")
@@ -317,7 +308,7 @@ class BayesOpt:
             n_iter = n_trials
             # Call run and then evaluate any remaining pending candidates to ensure we get exactly n_trials evaluations
             initial_count = len(self.train_confs)
-            results = self.run(n_iter=n_iter, n_init=None)
+            best_config = self.run(n_iter=n_iter, n_init=None)
 
             # Check if we have pending candidates that need evaluation to reach exactly n_trials more
             if len(self.train_confs) - initial_count < n_trials and self._pending_candidates:
@@ -325,12 +316,10 @@ class BayesOpt:
                 self._initialize(n_init=None)
                 # Update incumbent after final evaluation
                 self._fit_model_and_find_inc(self._total_iterations)
-                # Update results
-                results['conf_inc'] = self.curr_conf_inc
-                results['f_inc_obs'] = self.curr_f_inc_obs
-                results['f_inc_est'] = self.curr_f_inc_est
+                # Update best config
+                best_config = self.curr_conf_inc
 
-            return results
+            return best_config
         else:
             # Initial run: use original logic
             if n_init is None:
