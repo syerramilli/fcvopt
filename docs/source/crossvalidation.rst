@@ -23,7 +23,7 @@ Models Supported
 
 CVObjective Base Class
 ----------------------
-.. autoclass:: CVObjective
+.. autoclass:: fcvopt.crossvalidation.cvobjective.CVObjective
     :members:
     :undoc-members:
     :show-inheritance:
@@ -33,23 +33,23 @@ CVObjective Base Class
 Scikit-learn Wrappers
 ---------------------
 
-.. autoclass:: SklearnCVObj
+.. autoclass:: fcvopt.crossvalidation.sklearn_cvobj.SklearnCVObj
     :members:
     :undoc-members:
     :show-inheritance:
-    :special-members: __call__ 
+    :special-members: __call__
 
-.. autoclass:: XGBoostCVObjEarlyStopping
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-.. autoclass:: MLPCVObj
+.. autoclass:: fcvopt.crossvalidation.sklearn_cvobj.XGBoostCVObjEarlyStopping
     :members:
     :undoc-members:
     :show-inheritance:
 
-.. autoclass:: ResNetCVObj
+.. autoclass:: fcvopt.crossvalidation.mlp_cvobj.MLPCVObj
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: fcvopt.crossvalidation.resnet_cvobj.ResNetCVObj
     :members:
     :undoc-members:
     :show-inheritance:

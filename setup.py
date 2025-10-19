@@ -12,7 +12,7 @@ with open('exp_requirements.txt') as f:
 
 setup(
       name='fcvopt',
-      version='0.3.0',
+      version='0.4.0',
       description='Fractional K-fold cross-validation for hyperparameter optimization',
       url='http://github.com/syerramilli/fcvopt',
       author='Suraj Yerramilli, Daniel W. Apley',
