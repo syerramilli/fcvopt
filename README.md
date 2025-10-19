@@ -1,8 +1,32 @@
 # fcvopt: Fractional cross-validation for hyperparameter optimization
 
-This repository containts code to reproduce the results from the paper "Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms".
+FCVOpt is a Python package for "Fractional Cross-Validation"in hyperparameter optimization. It implements efficient hyperparameter tuning by evaluating only a fraction of cross-validation folds using hierarchical Gaussian processes.
 
-The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files.
+The documentation is available at [https://syerramilli.github.io/fcvopt/](https://syerramilli.github.io/fcvopt/).
+
+🚀 **Key Features**:
+
+* **Efficient Optimization**: Evaluate hyperparameters using only a subset of CV folds
+* **Hierarchical Gaussian Processes**: Model fold-wise correlations for better predictions
+* **MLflow Integration**: Automatic experiment tracking and model versioning
+* **Framework Support**: Scikit-learn, XGBoost, PyTorch (via Skorch), and more
+
+## Installation
+
+### From Source
+
+```{bash}
+git clone https://github.com/syerramilli/fcvopt.git
+cd fcvopt
+pip install .
+```
+
+**With optional dependencies**:
+
+```{bash}
+pip install .[experiments]  # For reproducing the results from the paper
+pip install .[docs]         # For building documentation
+```
 
 ## Citing
 If you use this code in your research, please cite the following paper:
@@ -17,11 +41,13 @@ If you use this code in your research, please cite the following paper:
 }
 ```
 
-## Setting up virtual environments/ containers
+## Reproducting the experiment results from the paper
 
-For reproducibility, we provide two options for setting up the environment to run the experiments: a virtual environment using `venv` and a Docker container. 
+The experiments are all contained in the `experiments` folder. Each subdirectory within this folder contains scripts files to run each case study in the paper. Refer to the README file within each of the subdirectories for instructions to run the files.
 
-### Virtual environment
+For reproducibility, we provide two options for setting up the environment to run the experiments: a virtual environment using `venv` and a Docker container.
+
+### Setting up a virtual environment
 
 The bash script file `venv_setup.sh` can be used to create a virtual environment and install the required packages. Ensure you have Python >= 3.8 and <=3.12 installed.
 
@@ -35,7 +61,7 @@ chmod +x venv_setup.sh
 **Note:**
 The experiments involving the SMAC algorithm require the `smac` library, which in turn requires the building and compliling the `pyrfr` package While the main functions of `fcvopt` do not depend on `pyrfr`, you might encounter build issues during its installation if you do not have a C++ compiler and the `swig` binary installed on your system. 
 
-### Docker
+### Setting up a Docker container
 
 The Dockerfile is provided to run the experiments in a container with the `fcvopt` package and all the required dependencies. The Dockerfile is based on the Python 3.10 debian image. To build the image, run the following command:
 
