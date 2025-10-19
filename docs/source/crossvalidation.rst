@@ -1,11 +1,25 @@
-fcvopt.crossvalidation
-======================
+Cross-Validation Objectives
+============================
 
-.. automodule:: fcvopt.crossvalidation
-.. currentmodule:: fcvopt.crossvalidation
+The cross-validation module provides convenient wrapper classes to perform K-fold cross-validation for various types of machine learning models. These objectives define the function that FCVOpt optimizes during hyperparameter tuning.
 
-This module provides convience classes to perform K-fold cross-validation for various classes
-of estimators.
+Overview
+------------
+
+Cross-validation objectives wrap machine learning models and define how to:
+
+* Set up K-fold cross-validation splits
+* Train models with given hyperparameters
+* Evaluate performance on validation folds
+* Handle model-specific requirements (early stopping, etc.)
+
+Models Supported
+----------------
+
+* Scikit-learn models: Any sklearn estimator (RandomForest, SVM, etc.)
+* XGBoost: With early stopping support
+* Neural Networks: Multi-layer perceptrons and Tabular ResNet architectures
+* Custom models: Extend the base CVObjective class
 
 CVObjective Base Class
 ----------------------
