@@ -27,6 +27,7 @@ setup(
                   'sphinx-rtd-theme',
                   'sphinxcontrib-napoleon',
                   'sphinx-autodoc-typehints',
+                  'nbsphinx'
             ]
       },
       zip_safe=False
