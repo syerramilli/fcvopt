@@ -108,9 +108,9 @@ class FCVOpt(BayesOpt):
                 folds_choice = np.random.choice(self.n_folds, 2, replace=False)
                 fold_1_samples = n_init // 2
                 fold_0_samples = n_init - fold_1_samples
-                self.train_folds = torch.tensor(
+                self.train_folds = torch.from_numpy(np.array(
                     [folds_choice[0]] * fold_0_samples + [folds_choice[1]] * fold_1_samples
-                ).double().view(-1, 1)
+                )).double().view(-1, 1)
 
             # Evaluate initial design
             xs, ys, ts = [], [], []
@@ -123,9 +123,9 @@ class FCVOpt(BayesOpt):
                 # Log each evaluation to MLflow with fold information
                 self._log_eval(conf, x, y, t_eval, fold_idx=fold_idx_int)
 
-            self.train_x = torch.tensor(xs).double()
-            self.train_y = torch.tensor(ys).double()
-            self.obj_eval_time = torch.tensor(ts).double()
+            self.train_x = torch.from_numpy(np.array(xs)).double()
+            self.train_y = torch.from_numpy(np.array(ys)).double()
+            self.obj_eval_time = torch.from_numpy(np.array(ts)).double()
         else:
             # Evaluate pending candidates from last acquisition
             if not hasattr(self, '_pending_candidates') or not self._pending_candidates:
@@ -159,9 +159,9 @@ class FCVOpt(BayesOpt):
                 self._log_eval(conf, x, y, t_eval, fold_idx=fold_idx)
 
             if xs:  # Only update if we have new evaluations
-                self.train_x = torch.cat([self.train_x, torch.tensor(xs).double().to(self.train_x)], dim=0)
-                self.train_y = torch.cat([self.train_y, torch.tensor(ys).double().to(self.train_y)], dim=0)
-                self.obj_eval_time = torch.cat([self.obj_eval_time, torch.tensor(ts).double().to(self.obj_eval_time)], dim=0)
+                self.train_x = torch.cat([self.train_x, torch.tensor(np.row_stack(xs)).double().to(self.train_x)], dim=0)
+                self.train_y = torch.cat([self.train_y, torch.tensor(np.array(ys)).double().to(self.train_y)], dim=0)
+                self.obj_eval_time = torch.cat([self.obj_eval_time, torch.tensor(np.array(ts)).double().to(self.obj_eval_time)], dim=0)
 
                 # Update fold tracking
                 new_folds = torch.tensor(next_folds_list).double().view(-1, 1).to(self.train_folds)

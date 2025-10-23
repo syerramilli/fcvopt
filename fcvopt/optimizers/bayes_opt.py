@@ -227,8 +227,7 @@ class BayesOpt:
             print(f'\nNumber of candidates evaluated.....: {len(self.train_confs)}')
             print(f'Observed obj at incumbent..........: {self.curr_f_inc_obs:.6g}')
             print(f'Estimated obj at incumbent.........: {self.curr_f_inc_est:.6g}')
-            print(f'\nIncumbent {status_msg}:\n', self.curr_conf_inc)
-            print(f'\nCandidate(s) {status_msg}:\n', self.curr_conf_cand)
+            print(f'\n Best Configuration {status_msg}:\n', self.curr_conf_inc)
 
         # Log current metrics
         self._ensure_mlflow_active()
@@ -1106,9 +1105,9 @@ class BayesOpt:
                 # log each evaluation to MLflow
                 self._log_eval(conf, x, y, t_eval)
 
-            self.train_x = torch.tensor(xs).double()
-            self.train_y = torch.tensor(ys).double()
-            self.obj_eval_time = torch.tensor(ts).double()
+            self.train_x = torch.from_numpy(np.array(xs)).double()
+            self.train_y = torch.from_numpy(np.array(ys)).double()
+            self.obj_eval_time = torch.from_numpy(np.array(ts)).double()
         else:
             # evaluate pending candidates from last acquisition
             if not self._pending_candidates:
@@ -1120,9 +1119,9 @@ class BayesOpt:
                 self.train_confs.append(conf)
                 self._log_eval(conf, x, y, t_eval)
 
-            self.train_x = torch.cat([self.train_x, torch.tensor(xs).double().to(self.train_x)], dim=0)
-            self.train_y = torch.cat([self.train_y, torch.tensor(ys).double().to(self.train_y)], dim=0)
-            self.obj_eval_time = torch.cat([self.obj_eval_time, torch.tensor(ts).double().to(self.obj_eval_time)], dim=0)
+            self.train_x = torch.cat([self.train_x, torch.tensor(np.row_stack(xs)).double().to(self.train_x)], dim=0)
+            self.train_y = torch.cat([self.train_y, torch.tensor(np.array(ys)).double().to(self.train_y)], dim=0)
+            self.obj_eval_time = torch.cat([self.obj_eval_time, torch.tensor(np.array(ts)).double().to(self.obj_eval_time)], dim=0)
             self._pending_candidates = None  # consumed
 
     def _evaluate(self, conf:Configuration, **kwargs) -> Tuple[np.ndarray, float, float]:

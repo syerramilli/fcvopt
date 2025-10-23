@@ -12,7 +12,7 @@ from gpytorch.priors import NormalPrior,LogNormalPrior,GammaPrior
 
 from .priors import HalfCauchyPrior
 from .warp import InputWarp
-from typing import Optional
+from typing import Optional, Union, Tuple
 
 def exp_with_shift(x:torch.Tensor):
     return 1e-6+x.exp()
@@ -99,7 +99,7 @@ class GPR(ExactGP, GPyTorchModel, FantasizeMixin):
                 continue
             setting_closure(module,prior.expand(closure(module).shape).sample())
 
-    def predict(self, x:torch.Tensor, return_std:bool=False) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    def predict(self, x:torch.Tensor, return_std:bool=False) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         r'''Returns the predicted mean and optionally the standard deviation of the model 
         at the given input points, conditioned on the training data.
 
