@@ -2,7 +2,7 @@ torch==2.2.0
 gpytorch>=1.9,<=1.10
 botorch>=0.8,<0.9
 ConfigSpace==1.2.1
-mlflow>=3.4
+mlflow>=3.0
 numpy>=1.2,<2
 scipy>=1.10
 scikit-learn>=1.2,<1.4
