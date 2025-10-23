@@ -54,7 +54,7 @@ latex_elements = {
 nbsphinx_execute = 'never'
 
 # Allow errors in notebook cells (useful for demonstration)
-nbsphinx_allow_errors = True
+nbsphinx_allow_errors = False
 
 # Timeout for notebook execution (if execute is enabled)
 nbsphinx_timeout = 300
