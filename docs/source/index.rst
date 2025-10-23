@@ -84,11 +84,11 @@ DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.25159
 ------------------------------
 
 .. toctree::
-   :maxdepth: 2
-   :caption: User Guide:
+   :maxdepth: 1
+   :caption: Examples:
 
-   getting_started
-   mlflow_integration
+   examples/01_Introduction_to_FCVOpt.ipynb
+   
 
 .. toctree::
    :maxdepth: 2
@@ -104,6 +104,7 @@ DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.25159
    :caption: Advanced:
    
    technical_details
+   mlflow_integration
 
 Indices and Tables
 ======================
