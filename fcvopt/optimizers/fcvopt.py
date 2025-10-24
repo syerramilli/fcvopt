@@ -94,7 +94,7 @@ class FCVOpt(BayesOpt):
         if self.train_confs is None:
             # First call - initialize with random configurations and folds
             if n_init is None:
-                n_init = len(self.config.quant_index) + 1
+                n_init = len(self.config) + 1
 
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = list(self.config.latinhypercube_sample(n_init))

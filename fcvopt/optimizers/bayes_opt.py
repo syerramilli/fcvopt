@@ -8,6 +8,8 @@ import gpytorch
 import mlflow
 from mlflow.tracking import MlflowClient
 import tempfile
+import warnings
+from linear_operator.utils.warnings import NumericalWarning
 
 from ConfigSpace import Configuration
 import ConfigSpace as CS
@@ -172,7 +174,7 @@ class BayesOpt:
         Args:
             n_iter (int): Number of acquisition iterations to run.
             n_init (int, optional): Number of initial random points. Only used on first call.
-                If None on first call, defaults to len(config.quant_index) + 1.
+                If None on first call, defaults to len(self.config) + 1.
                 Ignored on subsequent calls.
 
         Returns:
@@ -271,7 +273,7 @@ class BayesOpt:
                 Must be positive.
             n_init (int, optional):
                 Number of initial random configurations for the first call only.
-                If ``None`` on initial run, defaults to ``len(self.config.quant_index) + 1``.
+                If ``None`` on initial run, defaults to ``len(self.config) + 1``.
                 Ignored and warned about for continuation runs.
 
         Returns:
@@ -322,7 +324,7 @@ class BayesOpt:
         else:
             # Initial run: use original logic
             if n_init is None:
-                n_init = len(self.config.quant_index) + 1
+                n_init = len(self.config) + 1
 
             if not (1 <= n_init <= n_trials):
                 raise ValueError(f"n_init must be in [1, {n_trials}], got {n_init!r}")
@@ -618,7 +620,7 @@ class BayesOpt:
                 config_dict = json.load(f)
 
             # Reconstruct ConfigurationSpace
-            config = ConfigurationSpace.from_dict(config_dict)
+            config = ConfigurationSpace.from_serialized_dict(config_dict)
             config.generate_indices()
 
             # Extract original configuration from run metadata
@@ -1093,7 +1095,7 @@ class BayesOpt:
         """
         if self.train_confs is None:
             if n_init is None:
-                n_init = len(self.config.quant_index) + 1
+                n_init = len(self.config) + 1
             self.config.seed(np.random.randint(2e+4))
             self.train_confs = list(self.config.latinhypercube_sample(n_init))
 
@@ -1179,9 +1181,11 @@ class BayesOpt:
         if self.initial_params is not None:
             self.model.initialize(**self.initial_params)
 
-        t0 = time.time()
-        _ = fit_model_scipy(model=self.model, num_restarts=5, n_jobs=self.n_jobs, rng_seed=i)
-        self.curr_fit_time = time.time() - t0
+        with warnings.catch_warnings():
+            warnings.simplefilter(action="ignore", category=NumericalWarning)
+            t0 = time.time()
+            _ = fit_model_scipy(model=self.model, num_restarts=5, n_jobs=self.n_jobs, rng_seed=i)
+            self.curr_fit_time = time.time() - t0
 
         # freeze params and store for warm start
         self.initial_params = OrderedDict()
