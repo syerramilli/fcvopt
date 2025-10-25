@@ -4,6 +4,7 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import RepeatedKFold, RepeatedStratifiedKFold
 from joblib import Parallel, delayed
 from typing import Callable, List, Optional, Dict, Union
+from numpy.typing import ArrayLike
 
 class CVObjective:
     """
@@ -20,9 +21,7 @@ class CVObjective:
 
     **Intended usage:**  
     Subclasses must override:
-
-        - :meth:`construct_model`: Build and return a model given hyperparameters.
-        - :meth:`fit_and_test`: Fit the model on one train/test split and return a loss.
+        - :meth:`fit_and_test`: Fit the model on one train/test split and return a loss
 
     See :class:`SklearnCVObj` for an example.
 
@@ -42,15 +41,10 @@ class CVObjective:
         X: Feature data of shape ``(n_samples, n_features)``.
         y: Target data of shape ``(n_samples,)`` or compatible. For classification,
             labels are encoded internally with :class:`sklearn.preprocessing.LabelEncoder`.
-        task: One of ``'regression'``, ``'binary_classification'``, or ``'classification'``.
+        task: One of ``'regression'`` or ``'classification'``.
         loss_metric: Callable that computes a loss given ``(y_true, y_pred)``.
         n_splits: Number of folds per CV repeat. Defaults to ``5``.
         n_repeats: Number of CV repeats. Defaults to ``5``.
-        holdout: If ``True``, evaluate only the first fold. Defaults to ``False``.
-        scale_output: If ``True`` and ``task='regression'``, standardize target values
-            **per training fold** before fitting. Defaults to ``False``.
-        input_preprocessor: Optional scikit-learn-style transformer to fit and apply
-            **within each fold** (avoiding data leakage). Defaults to ``None``.
         stratified: If ``True`` and ``task`` is a classification type, use stratified
             CV splits. Defaults to ``True``.
         num_jobs: Number of parallel jobs for fold evaluations. Defaults to ``1``.
@@ -64,15 +58,12 @@ class CVObjective:
     """
     def __init__(
         self,
-        X: Union[np.ndarray, pd.DataFrame],
-        y: Union[np.ndarray, pd.Series],
+        X: Union[np.ndarray, pd.DataFrame, ArrayLike],
+        y: Union[np.ndarray, pd.Series, ArrayLike],
         task: str,
         loss_metric: Callable,
         n_splits: int = 5,
         n_repeats: int = 5,
-        holdout: bool = False,
-        scale_output: bool = False,
-        input_preprocessor=None,
         stratified: bool = True,
         num_jobs: int = 1
     ):
@@ -89,16 +80,12 @@ class CVObjective:
             self.cv = RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats)
 
         # generate splits, optionally holdout
-        all_splits = list(self.cv.split(self.X, self.y))
-        self.train_test_splits = all_splits[:1] if holdout else all_splits
-        self.holdout = holdout
+        self.train_test_splits = list(self.cv.split(self.X, self.y))
 
-        # encode classification labels
-        if 'classification' in self.task:
+        # encode classification labels:
+        if 'classification' in self.task and (isinstance(self.y, np.ndarray) or isinstance(self.y, pd.Series)):
             self.y = LabelEncoder().fit_transform(self.y)
 
-        self.scale_output = scale_output
-        self.input_preprocessor = input_preprocessor
         self.num_jobs = num_jobs
 
     def construct_model(self, params: Dict, **kwargs):

@@ -3,7 +3,6 @@ import pandas as pd
 from sklearn.base import clone, BaseEstimator, TransformerMixin
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import train_test_split
-from joblib import Parallel, delayed
 from typing import Callable, List, Optional, Dict, Union
 
 from ..crossvalidation.cvobjective import CVObjective
@@ -25,20 +24,17 @@ class SklearnCVObj(CVObjective):
             if the `needs_proba` flag is set to True and the loss metric requires probabilities.
         X: Feature data of shape (n_samples, n_features).
         y: Target data of shape (n_samples,).
-        task: One of 'regression', 'binary_classification', or 'classification'.
+        task: One of 'regression' or 'classification'.
         loss_metric: Function that computes a loss given (y_true, y_pred).
-        needs_proba: If True, `predict_proba` is used instead of `predict` to obtain
-            the prediction probabilities for scoring. Applicable only for classification
-            tasks. Defaults to False.
+        needs_proba: Whether the metric requires class probabilities. If True, the estimator's `predict_proba`
+            method is used instead of `predict`. Applicable only for classification tasks. Defaults to False.
         n_splits: Number of folds for cross-validation. Defaults to 10.
         n_repeats: Number of CV repeats. Defaults to 1.
-        holdout: If True, only the first fold is evaluated. Defaults to False.
         scale_output: If True and task='regression', target values are standardized
             per training fold. Defaults to False.
         input_preprocessor: Optional scikit-learn input transformer fit and applied per split. 
             Defaults to None.
-        stratified: If True and task is either 'binary_classification', or 'classification', use 
-            stratified K-fold splits. Defaults to True.
+        stratified: If True and task is 'classification', use stratified K-fold splits. Defaults to True.
         num_jobs: Number of parallel jobs for fold evaluations. Defaults to 1.
         rng_seed: Random seed for the `estimator` random state, if applicable.
     
@@ -61,7 +57,7 @@ class SklearnCVObj(CVObjective):
             # 1 repeat, 10 folds
             cv_obj = SklearnCVObj(
                 estimator, X, y,
-                task='binary_classification',
+                task='classification',
                 loss_metric=misclass_rate,
                 n_splits=10,
                 rng_seed=42
@@ -86,7 +82,6 @@ class SklearnCVObj(CVObjective):
         needs_proba: bool = False,
         n_splits: int = 10,
         n_repeats: int = 1,
-        holdout: bool = False,
         scale_output:bool = False,
         input_preprocessor:TransformerMixin=None,
         stratified: bool = False,
@@ -101,14 +96,13 @@ class SklearnCVObj(CVObjective):
             loss_metric=loss_metric,
             n_splits=n_splits,
             n_repeats=n_repeats,
-            holdout=holdout,
-            scale_output=scale_output,
-            input_preprocessor=input_preprocessor,
             stratified=stratified,
             num_jobs=num_jobs
         )
         self.estimator = estimator
         self.needs_proba = needs_proba
+        self.scale_output = scale_output
+        self.input_preprocessor = input_preprocessor
         self._rng = np.random.default_rng(rng_seed)
 
     def construct_model(self, params: Dict) -> BaseEstimator:
@@ -221,23 +215,21 @@ class XGBoostCVObjEarlyStopping(SklearnCVObj):
 
     Example:
         .. code-block:: python
-
+            from sklearn.metrics import zero_one_loss
             from xgboost import XGBClassifier
 
-            est = XGBClassifier(n_estimators=2000, tree_method="hist")
-
             cv_obj = XGBoostCVObjEarlyStopping(
-                estimator=est,
+                estimator=XGBClassifier(n_estimators=2000, tree_method="hist"),
                 X=X, y=y,
-                task='binary_classification',
-                loss_metric=misclass_rate,
+                task='classification',
+                loss_metric=zero_one_loss,
                 early_stopping_rounds=50,
                 validation_split=0.2,
                 rng_seed=123,
             )
 
             params = {'max_depth': 6, 'learning_rate': 0.05, 'subsample': 0.9}
-            loss = cv_obj(params)
+            cv_loss = cv_obj(params)
     """
     def __init__(
         self,
