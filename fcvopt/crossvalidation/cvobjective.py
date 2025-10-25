@@ -48,12 +48,13 @@ class CVObjective:
         stratified: If ``True`` and ``task`` is a classification type, use stratified
             CV splits. Defaults to ``True``.
         num_jobs: Number of parallel jobs for fold evaluations. Defaults to ``1``.
+        rng_seed: Random seed for the model random state, if applicable.
 
     Notes:
         - The meaning of "loss" is determined entirely by the ``loss_metric`` you provide.
           If you want to optimize a score where higher is better, wrap it into a loss
           (e.g., ``lambda y, yhat: -roc_auc_score(y, yhat)``).
-        - Subclasses may choose to aggregate per-fold results differently or compute
+        - Subclasses  choose to aggregate per-fold results differently or compute
           additional statistics.
     """
     def __init__(
@@ -63,9 +64,10 @@ class CVObjective:
         task: str,
         loss_metric: Callable,
         n_splits: int = 5,
-        n_repeats: int = 5,
+        n_repeats: int = 1,
         stratified: bool = True,
-        num_jobs: int = 1
+        num_jobs: int = 1,
+        rng_seed: Optional[int] = None
     ):
         self.X = X
         self.y = y
@@ -87,6 +89,7 @@ class CVObjective:
             self.y = LabelEncoder().fit_transform(self.y)
 
         self.num_jobs = num_jobs
+        self.rng_seed = rng_seed
 
     def construct_model(self, params: Dict, **kwargs):
         """
@@ -137,12 +140,11 @@ class CVObjective:
         self,
         params: Dict,
         fold_idxs: Optional[List[int]] = None,
-        all: bool = False
+        return_all: bool = False
     ) -> Union[float, np.ndarray]:
         """Evaluate a hyperparameter configuration on selected CV folds.
 
-        By default, uses all generated folds, unless this objective was created with
-        ``holdout=True`` (then only the first fold is used). You can override the default
+        By default, uses all generated fold. You can override the default
         by providing ``fold_idxs`` (indices into the internally stored fold list).
 
         Computation is parallelized across folds according to ``num_jobs``.
@@ -150,25 +152,22 @@ class CVObjective:
         Args:
             params: Hyperparameters to pass to :meth:`construct_model`.
             fold_idxs: Optional list of fold indices to evaluate (e.g., ``[0, 3, 4]``).
-                If omitted, uses all folds, or only the first if ``holdout=True``.
-            all: If ``True``, return the per‑fold loss array; if ``False``, return
+                If omitted, uses all folds
+            return_all: If ``True``, return the per‑fold loss array; if ``False``, return
                 the aggregate (mean) loss over the selected folds.
 
         Returns:
-            float or ndarray: Mean loss across the selected folds (if ``all=False``),
+            float or ndarray: Mean loss across the selected folds (if ``return_all=False``),
             otherwise an array of per‑fold losses.
 
         Notes:
-            - The definition of "loss" is entirely determined by ``loss_metric``.
-              If you want to optimize a score where higher is better, wrap it into a loss
-              (e.g., negative score or ``1 - score``).
             - ``fold_idxs`` refer to the order produced by the internal splitter
               (``RepeatedKFold`` or ``RepeatedStratifiedKFold``).
         """
         # determine folds
         n_folds = self.cv.get_n_splits(self.X, self.y)
         if fold_idxs is None:
-            fold_idxs = [0] if self.holdout else list(range(n_folds))
+            fold_idxs = list(range(n_folds))
 
         # compute losses in parallel
         losses = Parallel(n_jobs=self.num_jobs)(
@@ -180,12 +179,12 @@ class CVObjective:
         )
 
         losses_arr = np.array(losses)
-        return losses_arr if all else float(losses_arr.mean())
+        return losses_arr if return_all else float(losses_arr.mean())
 
     def cvloss(self,
         params: Dict,
         fold_idxs: Optional[List[int]] = None,
-        all: bool = False
+        return_all: bool = False
     ) -> Union[float, np.ndarray]:
         '''
         Compute cross-validation loss for given hyperparameters (deprecated alias).
@@ -197,10 +196,10 @@ class CVObjective:
         Args:
             params: Dictionary of hyperparameters.
             fold_idxs: Indices of folds to evaluate.
-                Defaults to all folds or first if holdout.
-            all: If True, return array of losses per fold;
+                Defaults to all folds if not provided
+            return_all: If True, return array of losses per fold;
                 otherwise return mean loss. Defaults to False.
         Returns:
             float or np.ndarray: Mean loss (if all=False) or array of per-fold losses.
         '''
-        return self(params, fold_idxs=fold_idxs, all=all)
+        return self(params, fold_idxs=fold_idxs, return_all=return_all)

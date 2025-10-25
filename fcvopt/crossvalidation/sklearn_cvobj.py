@@ -97,7 +97,8 @@ class SklearnCVObj(CVObjective):
             n_splits=n_splits,
             n_repeats=n_repeats,
             stratified=stratified,
-            num_jobs=num_jobs
+            num_jobs=num_jobs,
+            rng_seed=rng_seed
         )
         self.estimator = estimator
         self.needs_proba = needs_proba
