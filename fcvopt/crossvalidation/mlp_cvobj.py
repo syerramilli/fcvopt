@@ -335,6 +335,5 @@ class MLPCVObj(SklearnCVObj):
 
         if self.optimizer == "SGD":
             config.add(Float("momentum", lower=0.5, upper=0.99, default=0.9))
-
-        config.generate_indices()
+            
         return config

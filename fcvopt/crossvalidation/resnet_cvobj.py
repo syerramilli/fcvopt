@@ -309,6 +309,4 @@ class ResNetCVObj(SklearnCVObj):
         # Optimization
         config.add(Float("lr", lower=1e-5, upper=1e-1, log=True, default=1e-3))
         config.add(Float("weight_decay", lower=1e-8, upper=1e-2, log=True, default=1e-5))
-
-        config.generate_indices()
         return config
