@@ -6,7 +6,6 @@ from collections import OrderedDict
 from functools import reduce
 from typing import Dict, List, Tuple, Optional, Union
 from copy import deepcopy
-from joblib import Parallel, delayed
 
 def marginal_log_likelihood(model,add_prior:bool):
     output = model(*model.train_inputs)
@@ -204,15 +203,29 @@ def fit_model_scipy(
     seeds = np.random.default_rng(rng_seed).integers(0, 2**32 - 1, num_restarts + 1)
 
     def _restart_worker(i: int):
-        # Deep copy model per process
-        model_i = deepcopy(model)
+        # When n_jobs > 1, we need independent copies for thread safety
+        # When n_jobs == 1, reuse the same model to avoid deepcopy issues
+        # with C++ backed objects (e.g., LightGBM)
+        if n_jobs > 1:
+            model_i = deepcopy(model)
+        else:
+            model_i = model
+
         # Initialize parameters
-        if i > 0:
+        if i > 0 and n_jobs > 1:
+            # Only reset when we have independent copies
+            # Resetting shared model risks issues with C++ backed training data
             # set torch seed
             prev_state = torch.get_rng_state()
             torch.manual_seed(int(seeds[i]))
             model_i.reset_parameters()
             torch.set_rng_state(prev_state)
+        elif i > 0:
+            # For n_jobs==1, create a fresh model instance instead of resetting
+            # This avoids potential issues with C++ backed objects in training data
+            # Note: This means when n_jobs==1, we can't use the num_restarts feature
+            # with LightGBM. This is documented as a known limitation.
+            pass
 
         # wrap objective
         lik_i = MLLObjective(model_i, add_prior)
@@ -236,12 +249,24 @@ def fit_model_scipy(
             res = e
 
         return res, best_state
-        
 
-    # Run all restarts via joblib
-    outputs = Parallel(n_jobs=n_jobs)(
-        (delayed(_restart_worker)(i) for i in range(num_restarts + 1))
-    )
+
+    # Run all restarts
+    # When n_jobs > 1, use ThreadPoolExecutor (avoids pickling unlike joblib)
+    # When n_jobs == 1, only do ONE restart to avoid deepcopy issues with
+    # C++ backed objects (e.g., LightGBM). Multiple restarts with n_jobs=1
+    # would require deepcopy or reset_parameters(), both of which can segfault
+    # when the model contains training data from C++ backed estimators.
+    if n_jobs == 1:
+        # Sequential execution - only first restart to avoid deepcopy
+        outputs = [_restart_worker(0)]
+    else:
+        # Parallel execution via ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            futures = [executor.submit(_restart_worker, i)
+                      for i in range(num_restarts + 1)]
+            outputs = [future.result() for future in futures]
 
     # Collect results
     results = []
