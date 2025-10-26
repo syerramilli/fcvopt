@@ -88,7 +88,8 @@ DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.25159
    :caption: Examples:
 
    examples/01_Introduction_to_FCVOpt.ipynb
-   
+   examples/02_Tuning_Lightgbm_Sklearn_API.ipynb
+   examples/03_Extending_CVobjective.ipynb
 
 .. toctree::
    :maxdepth: 2
