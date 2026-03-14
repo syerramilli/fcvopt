@@ -100,6 +100,7 @@ Contents
    examples/02_Tuning_Lightgbm_Sklearn_API.ipynb
    examples/03_Extending_CVobjective.ipynb
    examples/04_Standard_BO.ipynb
+   examples/05_Tuning_TabularResNet.ipynb
 
 .. toctree::
    :maxdepth: 2
