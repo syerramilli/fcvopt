@@ -1,204 +1,119 @@
-import numpy as np
-import os 
 import time
-import torch
-import gpytorch
 import warnings
-import joblib
+from typing import Callable, Optional
 
-from ..models import GPR
-from ..fit.mll_scipy import fit_model_scipy
-from ..configspace import ConfigurationSpace
-
+import torch
 from botorch.acquisition import qNegIntegratedPosteriorVariance
 from botorch.sampling import SobolQMCNormalSampler
+
+from ..configspace import ConfigurationSpace
+from .bayes_opt import BayesOpt
 from .optimize_acq import _optimize_botorch_acqf
 
-from typing import Callable,List,Union,Tuple,Optional,Dict
-from collections import OrderedDict
-from copy import deepcopy
 
-class ActiveLearning:
+class ActiveLearning(BayesOpt):
+    """Active learning via integrated posterior variance reduction.
+
+    Selects configurations that most reduce GP uncertainty integrated over a
+    reference set ``X_ref`` (``qNegIntegratedPosteriorVariance``). Unlike
+    :class:`BayesOpt`, there is no optimum to find—the goal is to learn the
+    function shape across the domain efficiently.
+
+    All MLflow tracking, model checkpointing, warm-starting, parallel
+    evaluation, and continuation/restore logic are inherited from
+    :class:`BayesOpt`.
+
+    Args:
+        obj: Objective function mapping a configuration dict to a scalar.
+        config: Hyperparameter search space.
+        X_ref: Reference tensor of shape ``(n_ref, d)`` used to compute
+            integrated posterior variance. Required.
+        n_jobs: Number of parallel jobs. Defaults to 1.
+        verbose: Verbosity level (0/1/2). Defaults to 1.
+        seed: Random seed. Defaults to None.
+        tracking_uri: MLflow tracking URI. Defaults to None.
+        tracking_dir: Directory for MLflow tracking. Defaults to None.
+        experiment: MLflow experiment name. Defaults to ``"ActiveLearning"``.
+        run_name: MLflow run name. Defaults to a timestamp string.
+        model_checkpoint_freq: Save GP checkpoint every N iterations.
+            Defaults to 1.
+
+    Examples:
+        >>> al = ActiveLearning(obj=measure, config=cs, X_ref=X_ref)
+        >>> al.run(n_iter=20, n_init=5)
+    """
+
     def __init__(
         self,
-        obj:Callable,
-        config:ConfigurationSpace,
-        X_ref:torch.Tensor,
-        n_jobs:int=1,
-        verbose:int=1,
-        save_iter:Optional[int]=None,
-        save_dir:Optional[int]=None,
-        # TODO: remove this criterion
-        acquisition_type:str='alc'
+        obj: Callable,
+        config: ConfigurationSpace,
+        X_ref: torch.Tensor,
+        n_jobs: int = 1,
+        verbose: int = 1,
+        seed: Optional[int] = None,
+        tracking_uri: Optional[str] = None,
+        tracking_dir: Optional[str] = None,
+        experiment: Optional[str] = None,
+        run_name: Optional[str] = None,
+        model_checkpoint_freq: int = 1,
     ):
-        self.obj = obj
-        self.config = config
+        super().__init__(
+            obj=obj,
+            config=config,
+            minimize=False,        # sign_mul=1; GP trained on raw y values
+            acq_function='EI',     # placeholder; overridden by _create_acquisition_function
+            verbose=verbose,
+            n_jobs=n_jobs,
+            seed=seed,
+            tracking_uri=tracking_uri,
+            tracking_dir=tracking_dir,
+            experiment=experiment,
+            run_name=run_name,
+            model_checkpoint_freq=model_checkpoint_freq,
+        )
         self.X_ref = X_ref
-        if not isinstance(n_jobs, int) or (n_jobs < 1 and n_jobs != -1):
-            raise ValueError(f"n_jobs must be -1 (all cores) or a positive integer; got {n_jobs!r}")
-        self.n_jobs = n_jobs
-        self.verbose=verbose
-        self.save_iter = save_iter
-        self.save_dir = save_dir
+        # Overwrite placeholder so MLflow logs the correct acquisition name
+        self.acq_function = 'NIPV'
 
-        # initialize objects
-        self.model = None
-        self.train_confs = None
-        self.train_x = []
-        self.train_y = []
-        self.confs_cand = []
-        self.acq_vec = []
-        self.fit_time = []
-        self.acqopt_time = []
-        self.obj_eval_time = []
-        self.initial_params = None
-    
-    def run(self,n_iter:int,n_init:Optional[int]=None) -> Dict:
-        output_header = '%6s %10s' % ('iter', 'max_var')
-        for i in range(n_iter):
-            # either initialize observations or evaluate the next candidate
-            self._initialize(n_init)
-
-            # fit model
-            self._fit_model()
-        
-            # acquisition find next candidate
-            self._acquisition()
-
-            if self.save_iter and self.save_dir:
-                if i % self.save_iter == 0:
-                    self.save_to_file(self.save_dir)
-
-            # update verbose statements
-            if self.verbose >= 2:
-                if i%10 == 0:
-                    # print header every 19 iterations
-                    print(output_header)
-                print('%6i %10.3e' % (i,self.acq_vec[-1]))
-        
-        if self.verbose >= 1:
-
-            print('')
-            print('Number of candidates evaluated.....: %g' % len(self.train_confs))
-            print('Posterior variance at candidate....: %g' % self.acq_vec[-1])
-            print('')
-            print('Candidate at termination:')
-            print(self.confs_cand[-1])
-
-    def save_to_file(self,folder):
-        #  optimization statistics
-        stat_keys = [
-            'acq_vec','confs_cand',
-            'fit_time','acqopt_time','obj_eval_time',
-        ]
-        stats = {
-            key:getattr(self,key) for key in stat_keys
-        }
-        joblib.dump(stats,os.path.join(folder,'stats.pkl'))
-        # Observations
-        _ = torch.save({
-            key:getattr(self,key) for key in ['train_x','train_y']
-        },os.path.join(folder,'model_train.pt'))
-        # model state dict
-        _ = torch.save(self.model.state_dict(),os.path.join(folder,'model_state.pth'))
-
-
-    def _initialize(self,n_init:Optional[int]=None):
-        if self.train_confs is None:
-            if n_init is None:
-                n_init = len(self.config.quant_index) + 1
-            
-            self.config.seed(np.random.randint(2e+4))
-            self.train_confs = self.config.latinhypercube_sample(n_init)
-
-            evaluations = self._evaluate_confs(self.train_confs)
-            for x,y,eval_time in evaluations:
-                self.train_x.append(x)
-                self.train_y.append(y)
-                self.obj_eval_time.append(eval_time)
-            
-            self.train_x = torch.tensor(self.train_x).double()
-            self.train_y = torch.tensor(self.train_y).double()
-        else:
-            # algorithm has been run previously
-            # evaluate the next candidate 
-            next_confs_list = self.confs_cand[-1]
-            evaluations = self._evaluate_confs(next_confs_list)
-            
-            for next_conf,(next_x,next_y,eval_time) in zip(next_confs_list,evaluations):
-                self.train_confs.append(next_conf)
-                self.train_y = torch.cat([self.train_y,torch.tensor([next_y]).to(self.train_y)])
-                self.train_x = torch.cat([self.train_x,torch.tensor(next_x).to(self.train_x).reshape(1,-1)])
-                self.obj_eval_time.append(eval_time)
-    
-    def _evaluate(self,conf,**kwargs):
-        start_time = time.time()
-        y = self.obj(conf.get_dictionary(),**kwargs)
-        eval_time = time.time()-start_time
-        return conf.get_array(),y,eval_time
-
-    def _evaluate_confs(self,confs_list,**kwargs):
-        if self.n_jobs > 1 and len(confs_list) > 1:
-            # enable parallel evaulations
-            evaluations = joblib.Parallel(n_jobs=self.n_jobs,verbose=0)(
-                joblib.delayed(self._evaluate)(conf,**kwargs) for conf in confs_list
-            )
-        else:
-            # can add logging here
-            evaluations = [None]*len(confs_list)
-            for i,conf in enumerate(confs_list):
-                evaluations[i] = self._evaluate(conf,**kwargs)
-        
-        return evaluations
-    
-    def _fit_model(self) -> None:
-        # construct model
-        self.model = self._construct_model()
-
-        start_time = time.time()
-        if self.initial_params is not None:
-            self.model.initialize(**self.initial_params)
-
-        _ = fit_model_scipy(model = self.model,num_restarts = 5, n_jobs=self.n_jobs)
-            
-        self.fit_time.append(time.time()-start_time)
-
-        # disable model gradients
-        self.initial_params = OrderedDict()
-        for name,parameter in self.model.named_parameters():
-            parameter.requires_grad_(False)
-            self.initial_params[name] = parameter
-            
-        # generate model cache
-        self.model.eval()
-        with torch.no_grad():
-            _ = self.model(self.train_x[[0],:])
-    
-    def _construct_model(self):
-        return GPR(
-            train_x = self.train_x,
-            train_y = self.train_y,
-        ).double()
-    
-    def _acquisition(self) -> None:
-        acqobj = qNegIntegratedPosteriorVariance(
+    def _create_acquisition_function(self):
+        """Return a qNegIntegratedPosteriorVariance acquisition over X_ref."""
+        return qNegIntegratedPosteriorVariance(
             self.model,
             mc_points=self.X_ref,
-            # dummy sampler - the posterior variance will not
-            # depend on the y values
-            sampler=SobolQMCNormalSampler(sample_shape=torch.Size([1]), seed=0)
+            # Dummy sampler — NIPV does not depend on y samples
+            sampler=SobolQMCNormalSampler(sample_shape=torch.Size([1]), seed=0),
         )
-        start_time = time.time()
+
+    def _select_next_candidates(self, i: int):
+        """Optimize NIPV to select the next configuration.
+
+        Overrides the parent to (a) use the NIPV acquisition and (b) negate
+        ``max_acq`` so that ``curr_acq_val`` reflects actual integrated
+        posterior variance (positive) rather than the negated value returned
+        by BoTorch.
+        """
+        del i
+        acqobj = self._create_acquisition_function()
+
+        t0 = time.time()
         new_x, max_acq = _optimize_botorch_acqf(
             acq_function=acqobj,
             d=self.train_x.shape[-1],
             q=1,
-            num_restarts = 20,
+            num_restarts=20,
             n_jobs=self.n_jobs,
-            raw_samples=128
+            raw_samples=128,
         )
+        self.curr_acq_opt_time = time.time() - t0
 
-        end_time = time.time()
-        self.acqopt_time.append(end_time-start_time)
-        self.confs_cand.append([self.config.get_conf_from_array(x.numpy()) for x in new_x])
-        self.acq_vec.append(max_acq.item())
+        xs = list(new_x) if torch.is_tensor(new_x) else new_x
+        cand_confs = [self.config.get_conf_from_array(x.detach().cpu().numpy()) for x in xs]
+        # NIPV maximises negative variance; negate so curr_acq_val = actual variance
+        self.curr_acq_val = float(-max_acq.item())
+        return cand_confs
+
+    def _print_summary(self, status_msg: str) -> None:
+        """Print active-learning summary (variance-focused)."""
+        print(f'\nNumber of candidates evaluated.....: {len(self.train_confs)}')
+        print(f'Integrated posterior variance.......: {self.curr_acq_val:.6g}')
+        print(f'\n Last candidate {status_msg}:\n', self.curr_conf_inc)
