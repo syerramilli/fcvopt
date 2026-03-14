@@ -10,8 +10,8 @@ from typing import Callable, List ,Optional
 import joblib
 
 class FCVOpt(BayesOpt):
-    """Fractional cross-validation for hyperparameter optimization
-    
+    """Fractional cross-validation for hyperparameter optimization.
+
     Implements the fractional CV approach from "Fractional cross-validation for optimizing
     hyperparameters of supervised learning algorithms." This method uses a hierarchical
     Gaussian process (HGP) model to exploit the correlation of single-fold out-of-sample
@@ -19,36 +19,98 @@ class FCVOpt(BayesOpt):
     optimization with only a fraction of the K folds evaluated per configuration.
 
     Rather than performing full K-fold CV at every candidate point, FCVOpt:
+
       - Employs a hierarchical GP that models both fold-wise and hyperparameter-wise
-        covariance structures
+        covariance structures.
       - Evaluates only one fold (or a small subset of folds) for most configurations,
-        drastically reducing computation
-      - Selects folds adaptively based on variance reduction or random sampling
+        drastically reducing computation.
+      - Selects folds adaptively based on variance reduction or random sampling.
 
     Args:
-        obj: Objective function that takes a hyperparameter configuration dict and returns
-            a scalar cross-validation error for a given fold index list.
+        obj: Objective function that accepts a hyperparameter configuration dict and a
+            ``fold_idxs`` keyword argument (list of int), and returns a scalar
+            cross-validation error for the requested fold(s).
         config: Hyperparameter search space.
         n_folds: Number of folds in standard K-fold cross-validation.
-        n_repeats: Number of independent repeats of K-fold CV; used to expand the fold index 
-            set. Defaults to 1.
+        n_repeats: Number of independent repeats of K-fold CV; used to expand the fold
+            index set. For example, ``n_folds=5, n_repeats=2`` gives valid fold indices
+            0–9. Defaults to 1.
         fold_selection_criterion: Strategy for selecting the next fold to evaluate:
-            - 'variance_reduction': choose the fold that minimizes predictive variance via
-              HGP._fold_selection_metric
-            - 'random': choose folds uniformly at random
-            Defaults to 'variance_reduction'.
-        fold_initialization: Strategy for assigning folds in the initial random sample of configurations:
-            - 'random': sample folds uniformly at random
-            - 'stratified': use stratified sampling across folds via
-              :func:`fcvopt.util.samplers.stratified_sample`
-            - 'two_folds': randomly pick two distinct folds and split samples between them
-            Defaults to 'random'.
-        minimize: If True, minimizes the cross-validation error; otherwise maximizes. Defaults to True.
-        acq_function: Acquisition function to use. One of {'LCB', 'KG'}. Note that 'EI' is not supported and will 
-            raise a RuntimeError. Defaults to 'LCB'.
-        **kwargs: Additional keyword arguments passed to :class:`.bayes_opt.BayesOpt`:
-            `acq_function_options`, `batch_acquisition`, `acquisition_q`, `verbose`,
-            `save_iter`, `save_dir`, and `n_jobs`.
+
+            - ``'variance_reduction'``: choose the fold that minimizes predictive
+              variance via :meth:`fcvopt.models.HGP._fold_selection_metric`.
+            - ``'random'``: choose folds uniformly at random.
+
+            Defaults to ``'variance_reduction'``.
+        fold_initialization: Strategy for assigning folds in the initial random sample
+            of configurations:
+
+            - ``'random'``: sample folds uniformly at random.
+            - ``'stratified'``: use stratified sampling across folds via
+              :func:`fcvopt.util.samplers.stratified_sample`.
+            - ``'two_folds'``: randomly pick two distinct folds and split the initial
+              samples evenly between them.
+
+            Defaults to ``'random'``.
+        minimize: If True, minimizes the cross-validation error; otherwise maximizes.
+            Defaults to True.
+        acq_function: Acquisition function to use. One of ``{'LCB', 'KG'}``. Note that
+            ``'EI'`` is not supported for FCVOpt and will raise a
+            :exc:`RuntimeError`. Defaults to ``'LCB'``.
+        acq_function_options: Additional keyword arguments passed to the acquisition
+            function constructor. Defaults to None.
+        batch_acquisition: If True, a batch of ``acquisition_q`` configurations is
+            proposed at each iteration (using qLCB or qKG). Each candidate in the batch
+            is assigned its own fold index via ``fold_selection_criterion``. Defaults to
+            False.
+        acquisition_q: Number of points in each proposed batch when
+            ``batch_acquisition`` is True. Defaults to 1.
+        verbose: Verbosity level; 0=no output, 1=summary at end, 2=detailed per-iteration
+            log. Defaults to 1.
+        n_jobs: Number of parallel jobs for objective evaluation and GP hyperparameter
+            fitting. Use -1 to utilise all available CPU cores. Defaults to 1.
+        seed: Random seed for reproducibility. Defaults to None.
+        tracking_uri: MLflow tracking URI (e.g., ``"file:/abs/path"`` or
+            ``"http://host:5000"``). Mutually exclusive with ``tracking_dir``.
+            Defaults to None (uses ``./mlruns``).
+        tracking_dir: Directory for MLflow tracking (e.g., ``"./results"``). Gets
+            converted to an absolute ``file:`` URI. Mutually exclusive with
+            ``tracking_uri``. Defaults to None.
+        experiment: MLflow experiment name. Defaults to ``"FCVOpt"``.
+        run_name: MLflow run name. Defaults to a timestamp string of the form
+            ``"run_YYYYMMDD_HHMMSS"``.
+        model_checkpoint_freq: Save a GP model checkpoint every N iterations.
+            ``1`` saves every iteration; the final iteration is always saved.
+            Defaults to 1.
+
+    Examples:
+        Basic usage with a scikit-learn cross-validation objective:
+
+        >>> from fcvopt.optimizers import FCVOpt
+        >>> from fcvopt.crossvalidation import SklearnCVObj
+        >>> from fcvopt.configspace import ConfigurationSpace
+        >>> from ConfigSpace import Float
+        >>> from sklearn.ensemble import RandomForestClassifier
+        >>> from sklearn.metrics import log_loss
+        >>>
+        >>> config = ConfigurationSpace(seed=42)
+        >>> config.add(Float('max_features', bounds=(0.1, 1.0)))
+        >>> config.add(Float('min_samples_leaf', bounds=(0.01, 0.1)))
+        >>>
+        >>> cv_obj = SklearnCVObj(
+        ...     estimator=RandomForestClassifier(n_estimators=100),
+        ...     X=X_train, y=y_train,
+        ...     task='classification',
+        ...     loss_metric=log_loss,
+        ...     n_splits=5
+        ... )
+        >>>
+        >>> optimizer = FCVOpt(
+        ...     obj=cv_obj, config=config, n_folds=5,
+        ...     tracking_dir='./results'
+        ... )
+        >>> best_config = optimizer.run(n_iter=20, n_init=5)
+        >>> optimizer.end_run()
 
     References:
         - :class:`fcvopt.models.HGP`
@@ -80,6 +142,13 @@ class FCVOpt(BayesOpt):
         self.n_repeats = n_repeats
         self.train_folds = None
         self.folds_cand = []
+        self._pending_folds = None
+
+    def _print_summary(self, status_msg: str) -> None:
+        print(f'\nNumber of candidates evaluated.....: {len(self.train_confs)}')
+        print(f'Single-fold observed loss (best)...: {self.curr_f_inc_obs:.6g}')
+        print(f'Estimated full CV loss (best)......: {self.curr_f_inc_est:.6g}')
+        print(f'\n Best configuration {status_msg}:\n', self.curr_conf_inc)
 
     def _initialize(self, n_init: Optional[int] = None):
         """Initialize optimizer with random points or evaluate pending candidates.
