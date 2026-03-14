@@ -1,22 +1,53 @@
-# Compiled python modules.
+# Python compiled files
 *.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+*.dylib
+*.dll
 
-# Setuptools distribution folder.
-/dist/
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
 
-# Python egg metadata, regenerated from source files by setuptools.
-/*.egg-info
+# Virtual environments
+fcvopt_test/
+venv/
+env/
+ENV/
 
-# test files
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Project specific
 test.py
-
-# pkl files
 *.pkl
 *.pt
 *.pth
-
-# quest files
-*.e*
-*.o*
-
 *.csv
+docs/build/*
+examples/**runs/*
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
