@@ -44,11 +44,6 @@ Scikit-learn Wrappers
     :undoc-members:
     :show-inheritance:
 
-.. autoclass:: fcvopt.crossvalidation.mlp_cvobj.MLPCVObj
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 .. autoclass:: fcvopt.crossvalidation.resnet_cvobj.ResNetCVObj
     :members:
     :undoc-members:
@@ -62,11 +57,6 @@ Optuna Wrapper
 
 Utility classes
 -----------------------------
-
-.. autoclass:: fcvopt.crossvalidation.mlp_cvobj.MLP
-    :members:
-    :undoc-members:
-    :show-inheritance:
 
 .. autoclass:: fcvopt.crossvalidation.resnet_cvobj.TabularResNet
     :members:

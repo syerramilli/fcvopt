@@ -10,7 +10,7 @@ from ConfigSpace import Float,Integer
 from smac import HyperparameterOptimizationFacade, Scenario
 from smac.initial_design import AbstractInitialDesign
 
-from fcvopt.crossvalidation.mlp_cvobj import MLPCVObj
+from mlp_cvobj import MLPCVObj
 from sklearn.metrics import mean_squared_error
 
 #from sklearn.preprocessing import QuantileTransformer
@@ -67,7 +67,6 @@ cvobj = MLPCVObj(
     loss_metric=metric,
     n_splits=10,
     n_repeats=1,
-    holdout=False,
     scale_output=True,
     input_preprocessor=StandardScaler()
 )

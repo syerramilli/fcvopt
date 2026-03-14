@@ -17,7 +17,7 @@ from ConfigSpace import Float,Integer
 from fcvopt.optimizers.active_learning import ActiveLearning
 
 from argparse import ArgumentParser
-from fcvopt.crossvalidation.mlp_cvobj import MLPCVObj
+from mlp_cvobj import MLPCVObj
 from sklearn.metrics import mean_squared_error
 
 from sklearn.preprocessing import QuantileTransformer
@@ -153,7 +153,6 @@ cvobj = MLPCVObj(
     loss_metric=metric,
     n_splits=10,
     n_repeats=1,
-    holdout=False,
     scale_output=True,
     input_preprocessor=QuantileTransformer(output_distribution='normal'),
     num_jobs=args.n_jobs
