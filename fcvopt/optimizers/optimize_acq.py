@@ -95,7 +95,7 @@ def _optimize_botorch_acqf(
             bounds=bounds,
             q=q,
             num_restarts=num_restarts,
-            raw_samples=raw_samples,
+            raw_samples=None,
             options=options,
             batch_initial_conditions=initial_conditions
         )
