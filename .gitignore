@@ -16,9 +16,8 @@ dist/
 
 # Virtual environments
 fcvopt_test/
+.venv/
 venv/
-env/
-ENV/
 
 # IDEs
 .vscode/
@@ -47,6 +46,8 @@ examples/**runs/*
 # MLflow
 mlruns/
 mlartifacts/
+hpt_opt_runs/
+opt_runs/
 
 # Jupyter
 .ipynb_checkpoints/
