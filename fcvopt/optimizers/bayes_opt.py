@@ -378,6 +378,20 @@ class BayesOpt:
         self._client.set_tag(self._run_id, "status", "completed")
         self._client.set_terminated(self._run_id, status="FINISHED")
 
+    @property
+    def observed_values(self) -> 'np.ndarray':
+        """All objective values observed during optimization, in evaluation order.
+
+        Returns:
+            np.ndarray: 1-D array of observed objective values, shape ``(n_evals,)``.
+
+        Raises:
+            RuntimeError: If no optimization has been performed yet.
+        """
+        if self.train_y is None:
+            raise RuntimeError("No optimization performed yet. Call optimize() first.")
+        return self.train_y.numpy()
+
     def get_optimization_results(self) -> List[Dict[str, Any]]:
         """Retrieve detailed optimization results for all iterations.
 
