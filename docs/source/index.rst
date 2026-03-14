@@ -18,6 +18,14 @@ Features
 Installation
 ------------
 
+From PyPI:
+
+.. code-block:: bash
+
+   pip install fcvopt
+
+From source:
+
 .. code-block:: bash
 
    git clone https://github.com/syerramilli/fcvopt.git
