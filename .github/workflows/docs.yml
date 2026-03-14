@@ -6,6 +6,7 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs.yml'
+      - 'examples/**'
   pull_request:
     branches: [ master, main ]
     paths:
