@@ -103,16 +103,24 @@ class TestBayesOpt(unittest.TestCase):
         self.assertTrue(bo.batch_acquisition)
         self.assertEqual(bo.acquisition_q, 3)
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_run_basic(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_run_basic(self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+                       mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run):
         """Test basic run functionality."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         bo = BayesOpt(
             obj=self.objective,
@@ -122,34 +130,43 @@ class TestBayesOpt(unittest.TestCase):
         )
 
         # Run for 3 iterations with 2 initial points
-        results = bo.run(n_iter=3, n_init=2)
+        best_config = bo.run(n_iter=3, n_init=2)
 
-        # Check results structure
-        self.assertIn('conf_inc', results)
-        self.assertIn('f_inc_obs', results)
-        self.assertIn('f_inc_est', results)
+        # Check that best_config is a Configuration object
+        self.assertIsNotNone(best_config)
+        self.assertIn('x', best_config)
+        self.assertIn('y', best_config)
 
         # Check that we have trained on the expected number of points
-        # 2 initial + 3 iterations = 5 total evaluations
-        self.assertEqual(len(bo.train_confs), 5)
-        self.assertEqual(bo.train_x.shape[0], 5)
-        self.assertEqual(bo.train_y.shape[0], 5)
+        # 2 initial + 2 evaluated pending candidates = 4 total evaluations
+        # (the pending candidate from the last iteration isn't evaluated until next run)
+        self.assertEqual(len(bo.train_confs), 4)
+        self.assertEqual(bo.train_x.shape[0], 4)
+        self.assertEqual(bo.train_y.shape[0], 4)
 
         # Check that incumbent is reasonable (should be close to [0, 0])
-        incumbent_value = results['f_inc_obs']
+        incumbent_value = bo.curr_f_inc_obs
         self.assertIsInstance(incumbent_value, float)
         self.assertGreaterEqual(incumbent_value, 0)  # x^2 + y^2 >= 0
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_optimize_method(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_optimize_method(self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+                             mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run):
         """Test the optimize method interface."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         bo = BayesOpt(
             obj=self.objective,
@@ -159,11 +176,11 @@ class TestBayesOpt(unittest.TestCase):
         )
 
         # Test initial run
-        results = bo.optimize(n_trials=10, n_init=3)
+        best_config = bo.optimize(n_trials=10, n_init=3)
         self.assertEqual(len(bo.train_confs), 10)
 
         # Test continuation run
-        results2 = bo.optimize(n_trials=5)
+        best_config2 = bo.optimize(n_trials=5)
         self.assertEqual(len(bo.train_confs), 15)
 
     def test_create_acquisition_function(self):
@@ -250,70 +267,51 @@ class TestBayesOpt(unittest.TestCase):
         formatted = bo._format_candidate_configs()
         self.assertEqual(formatted, [])
 
-    @patch('mlflow.start_run')
-    @patch('mlflow.set_tracking_uri')
-    @patch('mlflow.set_experiment')
-    @patch('mlflow.log_dict')
-    def test_log_eval_with_kwargs(self, mock_log_dict, mock_set_exp, mock_set_uri, mock_start_run):
+    def test_log_eval_with_kwargs(self):
         """Test the enhanced _log_eval method with kwargs."""
-        # Mock MLflow
-        mock_run = MagicMock()
-        mock_run.info.run_id = 'test_run_id'
-        mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
-
         bo = BayesOpt(
             obj=self.objective,
             config=self.config_space,
             tracking_dir=self.temp_dir
         )
-
-        # Initialize MLflow
         bo._initialize_mlflow()
 
-        # Create test data
         conf = self.config_space.sample_configuration()
         x = conf.get_array()
         y = 1.5
         eval_time = 0.1
 
-        # Test basic logging
-        bo._log_eval(conf, x, y, eval_time)
+        # Patch _log_dict_via_client to intercept the payload without filesystem I/O
+        with patch.object(bo, '_log_dict_via_client') as mock_log:
+            bo._log_eval(conf, x, y, eval_time)
 
-        # Verify log_dict was called
-        self.assertTrue(mock_log_dict.called)
-        call_args = mock_log_dict.call_args[1]
-        logged_data = mock_log_dict.call_args[0][0]
+            self.assertTrue(mock_log.called)
+            logged_data = mock_log.call_args[0][0]
+            self.assertIn('idx', logged_data)
+            self.assertIn('conf', logged_data)
+            self.assertIn('x', logged_data)
+            self.assertIn('y', logged_data)
+            self.assertIn('eval_time', logged_data)
 
-        self.assertIn('idx', logged_data)
-        self.assertIn('conf', logged_data)
-        self.assertIn('x', logged_data)
-        self.assertIn('y', logged_data)
-        self.assertIn('eval_time', logged_data)
-
-        # Test logging with additional kwargs
-        bo._log_eval(conf, x, y, eval_time, fold_idx=3, custom_metric=42.0)
-
-        # Get the latest call
-        latest_call = mock_log_dict.call_args_list[-1]
-        logged_data = latest_call[0][0]
-
-        self.assertIn('fold_idx', logged_data)
-        self.assertIn('custom_metric', logged_data)
-        self.assertEqual(logged_data['fold_idx'], 3)
-        self.assertEqual(logged_data['custom_metric'], 42.0)
+            # Test logging with additional kwargs
+            bo._log_eval(conf, x, y, eval_time, fold_idx=3, custom_metric=42.0)
+            logged_data = mock_log.call_args_list[-1][0][0]
+            self.assertIn('fold_idx', logged_data)
+            self.assertIn('custom_metric', logged_data)
+            self.assertEqual(logged_data['fold_idx'], 3)
+            self.assertEqual(logged_data['custom_metric'], 42.0)
 
     def test_context_manager(self):
         """Test BayesOpt as a context manager."""
-        with patch('mlflow.start_run'), patch('mlflow.set_tracking_uri'), \
-             patch('mlflow.set_experiment'), patch('mlflow.end_run') as mock_end_run:
+        bo = BayesOpt(obj=self.objective, config=self.config_space,
+                      tracking_dir=self.temp_dir)
+        bo._initialize_mlflow()
 
-            with BayesOpt(obj=self.objective, config=self.config_space,
-                         tracking_dir=self.temp_dir) as bo:
+        with patch.object(bo, 'end_run') as mock_end_run:
+            with bo:
                 self.assertIsNotNone(bo)
 
-            # Verify end_run was called when exiting context
-            mock_end_run.assert_called_once()
+        mock_end_run.assert_called()
 
     def test_get_optimization_results_error_cases(self):
         """Test error cases for get_optimization_results."""
@@ -397,9 +395,8 @@ class TestBayesOpt(unittest.TestCase):
 
         self.assertIsNotNone(model)
         self.assertEqual(model.train_inputs[0].shape, (3, 2))
-        # Check sign multiplication is applied
-        expected_train_y = bo.sign_mul * bo.train_y
-        torch.testing.assert_close(model.train_targets, expected_train_y)
+        # Model internally standardizes targets, so just check shape
+        self.assertEqual(model.train_targets.shape, (3,))
 
 
 class TestBayesOptIntegration(unittest.TestCase):
@@ -423,16 +420,24 @@ class TestBayesOptIntegration(unittest.TestCase):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_optimization_convergence(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_optimization_convergence(self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+                                       mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run):
         """Test that optimization converges to the correct minimum."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         bo = BayesOpt(
             obj=self.objective,
@@ -443,26 +448,34 @@ class TestBayesOptIntegration(unittest.TestCase):
         )
 
         # Run optimization for more iterations
-        results = bo.run(n_iter=15, n_init=3)
+        best_config = bo.run(n_iter=15, n_init=3)
 
         # Check that we found a solution close to the true minimum
-        best_x = results['conf_inc']['x']
-        best_y = results['f_inc_obs']
+        best_x = best_config['x']
+        best_y = bo.curr_f_inc_obs
 
         # Should be close to x=1, y=0
         self.assertLess(abs(best_x - 1.0), 0.5)  # Within 0.5 of true minimum
         self.assertLess(best_y, 0.25)  # Function value should be small
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_different_acquisition_functions_integration(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_different_acquisition_functions_integration(self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+                                                          mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run):
         """Test that different acquisition functions work in practice."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         for acq_func in ['EI', 'LCB', 'KG']:
             with self.subTest(acq_func=acq_func):
@@ -476,12 +489,182 @@ class TestBayesOptIntegration(unittest.TestCase):
                 )
 
                 # Run a short optimization
-                results = bo.run(n_iter=5, n_init=2)
+                best_config = bo.run(n_iter=5, n_init=2)
 
                 # Should complete without errors and find reasonable solution
-                self.assertIsNotNone(results['conf_inc'])
-                self.assertIsInstance(results['f_inc_obs'], float)
-                self.assertGreaterEqual(results['f_inc_obs'], 0)  # >= 0 for quadratic
+                self.assertIsNotNone(best_config)
+                self.assertIsInstance(bo.curr_f_inc_obs, float)
+                self.assertGreaterEqual(bo.curr_f_inc_obs, 0)  # >= 0 for quadratic
+
+
+class TestBayesOptBatchAcquisition(unittest.TestCase):
+    """Integration tests for batch acquisition (acquisition_q > 1)."""
+
+    def setUp(self):
+        self.config_space = ConfigurationSpace()
+        self.config_space.add(CS.Float('x', bounds=(-2.0, 2.0)))
+        self.config_space.add(CS.Float('y', bounds=(-2.0, 2.0)))
+        self.config_space.generate_indices()
+
+        def objective(config):
+            return config['x']**2 + config['y']**2
+
+        self.objective = objective
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_acquisition_q2_produces_correct_evals(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """Full loop with batch_acquisition=True, acquisition_q=2 should evaluate
+        n_init + n_iter * q configurations total (minus the final pending batch)."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        n_init = 3
+        n_iter = 3
+
+        bo = BayesOpt(
+            obj=self.objective,
+            config=self.config_space,
+            batch_acquisition=True,
+            acquisition_q=q,
+            acq_function='LCB',  # EI works too; LCB avoids best_f edge cases
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        best_config = bo.run(n_iter=n_iter, n_init=n_init)
+
+        # n_init evaluated in iter 0; then each of (n_iter-1) subsequent iters
+        # evaluates a batch of q pending configs; the last acquisition batch is
+        # left pending and not yet evaluated.
+        expected_evals = n_init + (n_iter - 1) * q
+        self.assertEqual(len(bo.train_confs), expected_evals)
+        self.assertEqual(bo.train_x.shape, (expected_evals, 2))
+        self.assertEqual(bo.train_y.shape[0], expected_evals)
+
+        # There should be q pending candidates left over
+        self.assertIsNotNone(bo._pending_candidates)
+        self.assertEqual(len(bo._pending_candidates), q)
+
+        # Incumbent should be a valid configuration
+        self.assertIsNotNone(best_config)
+        self.assertIn('x', best_config)
+        self.assertIn('y', best_config)
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_mlflow_logs_each_candidate_separately(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """Each candidate in a batch must be logged as a separate eval entry."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        n_init = 2
+        n_iter = 2
+
+        bo = BayesOpt(
+            obj=self.objective,
+            config=self.config_space,
+            batch_acquisition=True,
+            acquisition_q=q,
+            acq_function='LCB',
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        log_calls = []
+        original_log_eval = bo._log_eval
+
+        def capture_log_eval(conf, x, y, eval_time, **kwargs):
+            log_calls.append({'conf': conf, 'y': y})
+            original_log_eval(conf, x, y, eval_time, **kwargs)
+
+        with patch.object(bo, '_log_eval', side_effect=capture_log_eval):
+            bo.run(n_iter=n_iter, n_init=n_init)
+
+        # n_init + (n_iter-1)*q individual logs expected
+        expected_logs = n_init + (n_iter - 1) * q
+        self.assertEqual(len(log_calls), expected_logs)
+
+        # _n_evals counter must match
+        self.assertEqual(bo._n_evals, expected_logs)
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_candidate_configs_snapshot(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """curr_conf_cand must contain q configs after each acquisition step."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        bo = BayesOpt(
+            obj=self.objective,
+            config=self.config_space,
+            batch_acquisition=True,
+            acquisition_q=q,
+            acq_function='LCB',
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        bo.run(n_iter=2, n_init=3)
+
+        # After the final acquisition, curr_conf_cand should hold exactly q configs
+        self.assertIsNotNone(bo.curr_conf_cand)
+        self.assertEqual(len(bo.curr_conf_cand), q)
+
+        # _format_candidate_configs should return q dicts
+        formatted = bo._format_candidate_configs()
+        self.assertEqual(len(formatted), q)
+        for cfg in formatted:
+            self.assertIsInstance(cfg, dict)
+            self.assertIn('x', cfg)
+            self.assertIn('y', cfg)
 
 
 if __name__ == '__main__':

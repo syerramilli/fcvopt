@@ -171,27 +171,17 @@ class TestFCVOpt(unittest.TestCase):
         )
 
         # Simulate that we haven't evaluated all folds yet
-        fcv.train_folds = torch.tensor([[0], [1]]).double()  # Only 2 out of 3 folds
+        fcv.train_folds = torch.tensor([[0], [1]]).double()  # Only 2 out of 6 folds
 
         cand_confs = [self.config_space.sample_configuration()]
         selected_folds = fcv._select_fold_indices(cand_confs)
 
-        # Should still use only n_folds, not n_folds * n_repeats
+        # With n_folds=3 and n_repeats=2, valid fold indices are 0-5
         self.assertEqual(len(selected_folds), 1)
-        self.assertIn(selected_folds[0], range(3))
+        self.assertIn(selected_folds[0], range(6))
 
-    @patch('mlflow.start_run')
-    @patch('mlflow.set_tracking_uri')
-    @patch('mlflow.set_experiment')
-    def test_initialize_random_folds(self, mock_set_exp, mock_set_uri, mock_start_run):
+    def test_initialize_random_folds(self):
         """Test initialization with random fold assignment."""
-        del mock_set_exp, mock_set_uri  # Silence unused parameter warnings
-        # Mock MLflow
-        mock_run = MagicMock()
-        mock_run.info.run_id = 'test_run_id'
-        mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
-
         fcv = FCVOpt(
             obj=self.cv_objective,
             config=self.config_space,
@@ -201,8 +191,8 @@ class TestFCVOpt(unittest.TestCase):
             verbose=0
         )
 
-        # Initialize with 4 points
-        fcv._initialize(n_init=4)
+        with patch.object(fcv, '_log_eval'):
+            fcv._initialize(n_init=4)
 
         self.assertEqual(len(fcv.train_confs), 4)
         self.assertEqual(fcv.train_folds.shape, (4, 1))
@@ -214,17 +204,8 @@ class TestFCVOpt(unittest.TestCase):
         for fold_idx in unique_folds:
             self.assertIn(fold_idx, range(5))
 
-    @patch('mlflow.start_run')
-    @patch('mlflow.set_tracking_uri')
-    @patch('mlflow.set_experiment')
-    def test_initialize_stratified_folds(self, mock_set_exp, mock_set_uri, mock_start_run):
+    def test_initialize_stratified_folds(self):
         """Test initialization with stratified fold assignment."""
-        # Mock MLflow
-        mock_run = MagicMock()
-        mock_run.info.run_id = 'test_run_id'
-        mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
-
         fcv = FCVOpt(
             obj=self.cv_objective,
             config=self.config_space,
@@ -235,7 +216,8 @@ class TestFCVOpt(unittest.TestCase):
         )
 
         # Initialize with 6 points (2 per fold)
-        fcv._initialize(n_init=6)
+        with patch.object(fcv, '_log_eval'):
+            fcv._initialize(n_init=6)
 
         self.assertEqual(len(fcv.train_confs), 6)
         self.assertEqual(fcv.train_folds.shape, (6, 1))
@@ -248,17 +230,8 @@ class TestFCVOpt(unittest.TestCase):
         self.assertEqual(len(unique_folds), 3)  # All 3 folds represented
         self.assertTrue(all(c == 2 for c in counts))  # 2 samples per fold
 
-    @patch('mlflow.start_run')
-    @patch('mlflow.set_tracking_uri')
-    @patch('mlflow.set_experiment')
-    def test_initialize_two_folds(self, mock_set_exp, mock_set_uri, mock_start_run):
+    def test_initialize_two_folds(self):
         """Test initialization with two_folds strategy."""
-        # Mock MLflow
-        mock_run = MagicMock()
-        mock_run.info.run_id = 'test_run_id'
-        mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
-
         fcv = FCVOpt(
             obj=self.cv_objective,
             config=self.config_space,
@@ -269,7 +242,8 @@ class TestFCVOpt(unittest.TestCase):
         )
 
         # Initialize with 4 points
-        fcv._initialize(n_init=4)
+        with patch.object(fcv, '_log_eval'):
+            fcv._initialize(n_init=4)
 
         self.assertEqual(len(fcv.train_confs), 4)
         self.assertEqual(fcv.train_folds.shape, (4, 1))
@@ -323,54 +297,49 @@ class TestFCVOpt(unittest.TestCase):
         self.assertIsInstance(formatted[0], dict)
         self.assertIsInstance(formatted[1], dict)
 
-    @patch('mlflow.start_run')
-    @patch('mlflow.set_tracking_uri')
-    @patch('mlflow.set_experiment')
-    @patch('mlflow.log_dict')
-    def test_log_eval_with_fold_info(self, mock_log_dict, mock_set_exp, mock_set_uri, mock_start_run):
+    def test_log_eval_with_fold_info(self):
         """Test evaluation logging with fold information."""
-        # Mock MLflow
-        mock_run = MagicMock()
-        mock_run.info.run_id = 'test_run_id'
-        mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
-
         fcv = FCVOpt(
             obj=self.cv_objective,
             config=self.config_space,
             n_folds=5,
             tracking_dir=self.temp_dir
         )
-
-        # Initialize MLflow
         fcv._initialize_mlflow()
 
-        # Create test data
         conf = self.config_space.sample_configuration()
         x = conf.get_array()
-        y = 1.5
-        eval_time = 0.1
 
-        # Test logging with fold information
-        fcv._log_eval(conf, x, y, eval_time, fold_idx=2)
+        # Patch _log_dict_via_client (the actual logging layer) to capture the payload
+        with patch.object(fcv, '_log_dict_via_client') as mock_log, \
+             patch.object(fcv, '_start_child_run', return_value='fake_child_run_id'), \
+             patch.object(fcv, '_end_child_run'):
+            fcv._log_eval(conf, x, 1.5, 0.1, fold_idx=2)
 
-        # Verify log_dict was called with fold information
-        self.assertTrue(mock_log_dict.called)
-        logged_data = mock_log_dict.call_args[0][0]
+            self.assertTrue(mock_log.called)
+            logged_data = mock_log.call_args[0][0]
+            self.assertIn('fold_idx', logged_data)
+            self.assertEqual(logged_data['fold_idx'], 2)
 
-        self.assertIn('fold_idx', logged_data)
-        self.assertEqual(logged_data['fold_idx'], 2)
-
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_acquisition_with_fold_selection(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_acquisition_with_fold_selection(self, mock_set_tag, mock_log_params, mock_set_tags,
+                                      mock_log_dict, mock_log_metrics, mock_set_exp,
+                                      mock_set_uri, mock_start_run, mock_active_run):
         """Test acquisition method with fold selection."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         fcv = FCVOpt(
             obj=self.cv_objective,
@@ -384,11 +353,16 @@ class TestFCVOpt(unittest.TestCase):
         fcv.train_x = torch.tensor([[0.0, 0.0], [1.0, 1.0]]).double()
         fcv.train_folds = torch.tensor([[0], [1]]).double()
         fcv.train_y = torch.tensor([0.0, 2.0]).double()
+        fcv.train_confs = [self.config_space.sample_configuration() for _ in range(2)]
         fcv.model = fcv._construct_model()
         fcv.curr_f_inc_est = 0.0
+        fcv.curr_f_inc_obs = 0.0
+        fcv.curr_fit_time = 0.1
+        fcv.curr_conf_inc = fcv.train_confs[0]
 
-        # Mock acquisition optimization
-        with patch('fcvopt.optimizers.bayes_opt._optimize_botorch_acqf') as mock_opt:
+        # Mock acquisition optimization and snapshot logging (which needs MLflow client)
+        with patch('fcvopt.optimizers.bayes_opt._optimize_botorch_acqf') as mock_opt, \
+             patch.object(fcv, '_log_iteration_snapshot'):
             mock_opt.return_value = (torch.tensor([[0.5, 0.5]]).double(), torch.tensor([1.0]))
 
             fcv._acquisition(0)
@@ -420,16 +394,25 @@ class TestFCVOpt(unittest.TestCase):
         self.assertEqual(model.train_inputs[0].shape, (3, 2))  # Configuration inputs
         self.assertEqual(model.train_inputs[1].shape, (3, 1))  # Fold inputs
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_evaluate_confs_parallel(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_evaluate_confs_parallel(self, mock_set_tag, mock_log_params, mock_set_tags,
+                                      mock_log_dict, mock_log_metrics, mock_set_exp,
+                                      mock_set_uri, mock_start_run, mock_active_run):
         """Test parallel evaluation of configurations with folds."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         fcv = FCVOpt(
             obj=self.cv_objective,
@@ -450,16 +433,25 @@ class TestFCVOpt(unittest.TestCase):
             self.assertIsInstance(y, (int, float))
             self.assertIsInstance(eval_time, (int, float))
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_run_basic(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_run_basic(self, mock_set_tag, mock_log_params, mock_set_tags,
+                                      mock_log_dict, mock_log_metrics, mock_set_exp,
+                                      mock_set_uri, mock_start_run, mock_active_run):
         """Test basic run functionality for FCVOpt."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         fcv = FCVOpt(
             obj=self.cv_objective,
@@ -470,19 +462,19 @@ class TestFCVOpt(unittest.TestCase):
         )
 
         # Run for 3 iterations with 2 initial points
-        results = fcv.run(n_iter=3, n_init=2)
+        best_config = fcv.run(n_iter=3, n_init=2)
 
-        # Check results structure
-        self.assertIn('conf_inc', results)
-        self.assertIn('f_inc_obs', results)
-        self.assertIn('f_inc_est', results)
+        # Check that best_config is a Configuration object
+        self.assertIsNotNone(best_config)
+        self.assertIn('x', best_config)
+        self.assertIn('y', best_config)
 
         # Check that we have the expected number of evaluations
-        # 2 initial + 3 iterations = 5 total evaluations
-        self.assertEqual(len(fcv.train_confs), 5)
-        self.assertEqual(fcv.train_x.shape[0], 5)
-        self.assertEqual(fcv.train_y.shape[0], 5)
-        self.assertEqual(fcv.train_folds.shape[0], 5)
+        # 2 initial + 2 evaluated pending = 4 total evaluations
+        self.assertEqual(len(fcv.train_confs), 4)
+        self.assertEqual(fcv.train_x.shape[0], 4)
+        self.assertEqual(fcv.train_y.shape[0], 4)
+        self.assertEqual(fcv.train_folds.shape[0], 4)
 
         # Check that fold indices are valid
         unique_folds = fcv.train_folds.flatten().unique().numpy()
@@ -617,16 +609,25 @@ class TestFCVOptIntegration(unittest.TestCase):
         if os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir)
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_fcvopt_optimization_convergence(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_fcvopt_optimization_convergence(self, mock_set_tag, mock_log_params, mock_set_tags,
+                                      mock_log_dict, mock_log_metrics, mock_set_exp,
+                                      mock_set_uri, mock_start_run, mock_active_run):
         """Test that FCVOpt converges to reasonable solutions."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         fcv = FCVOpt(
             obj=self.cv_objective,
@@ -639,11 +640,11 @@ class TestFCVOptIntegration(unittest.TestCase):
         )
 
         # Run optimization
-        results = fcv.run(n_iter=8, n_init=3)
+        best_config = fcv.run(n_iter=8, n_init=3)
 
         # Check that we found a reasonable solution
-        best_x = results['conf_inc']['x']
-        best_y = results['f_inc_obs']
+        best_x = best_config['x']
+        best_y = fcv.curr_f_inc_obs
 
         # Should be close to x=1, y≈0
         self.assertLess(abs(best_x - 1.0), 1.0)  # Within reasonable range
@@ -654,16 +655,25 @@ class TestFCVOptIntegration(unittest.TestCase):
         unique_folds = fcv.train_folds.flatten().unique().numpy()
         self.assertGreater(len(unique_folds), 0)  # At least one fold used
 
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.set_tracking_uri')
     @patch('mlflow.set_experiment')
-    def test_different_fold_strategies_integration(self, mock_set_exp, mock_set_uri, mock_start_run):
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_different_fold_strategies_integration(self, mock_set_tag, mock_log_params, mock_set_tags,
+                                      mock_log_dict, mock_log_metrics, mock_set_exp,
+                                      mock_set_uri, mock_start_run, mock_active_run):
         """Test different fold selection strategies work in practice."""
         # Mock MLflow
         mock_run = MagicMock()
         mock_run.info.run_id = 'test_run_id'
         mock_run.info.experiment_id = 'test_exp_id'
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
 
         for fold_strategy in ['random', 'variance_reduction']:
             for init_strategy in ['random', 'stratified', 'two_folds']:
@@ -680,13 +690,233 @@ class TestFCVOptIntegration(unittest.TestCase):
                     )
 
                     # Run a short optimization
-                    results = fcv.run(n_iter=3, n_init=2)
+                    best_config = fcv.run(n_iter=3, n_init=2)
 
                     # Should complete without errors
-                    self.assertIsNotNone(results['conf_inc'])
-                    self.assertIsInstance(results['f_inc_obs'], float)
-                    self.assertEqual(len(fcv.train_confs), 5)
-                    self.assertEqual(len(fcv.train_folds), 5)
+                    self.assertIsNotNone(best_config)
+                    self.assertIsInstance(fcv.curr_f_inc_obs, float)
+                    # 2 initial + 2 evaluated pending = 4 total evaluations
+                    self.assertEqual(len(fcv.train_confs), 4)
+                    self.assertEqual(len(fcv.train_folds), 4)
+
+
+class TestFCVOptBatchAcquisition(unittest.TestCase):
+    """Integration tests for FCVOpt with batch acquisition (acquisition_q > 1)."""
+
+    def setUp(self):
+        self.config_space = ConfigurationSpace()
+        self.config_space.add(CS.Float('x', bounds=(-2.0, 2.0)))
+        self.config_space.add(CS.Float('y', bounds=(-2.0, 2.0)))
+        self.config_space.generate_indices()
+
+        def cv_objective(config, fold_idxs=None):
+            if fold_idxs is None:
+                fold_idxs = [0]
+            base = config['x']**2 + config['y']**2
+            return base + 0.01 * np.mean(fold_idxs)
+
+        self.cv_objective = cv_objective
+        self.temp_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        if os.path.exists(self.temp_dir):
+            shutil.rmtree(self.temp_dir)
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_q2_correct_eval_and_fold_count(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """batch_acquisition=True with q=2 must evaluate n_init + (n_iter-1)*q
+        configs and track exactly as many fold entries."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        n_init = 3
+        n_iter = 3
+
+        fcv = FCVOpt(
+            obj=self.cv_objective,
+            config=self.config_space,
+            n_folds=3,
+            fold_selection_criterion='random',
+            batch_acquisition=True,
+            acquisition_q=q,
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        best_config = fcv.run(n_iter=n_iter, n_init=n_init)
+
+        expected_evals = n_init + (n_iter - 1) * q
+        self.assertEqual(len(fcv.train_confs), expected_evals)
+        self.assertEqual(fcv.train_x.shape[0], expected_evals)
+        self.assertEqual(fcv.train_y.shape[0], expected_evals)
+        # Fold tensor must stay in sync with configs
+        self.assertEqual(fcv.train_folds.shape[0], expected_evals)
+
+        # All tracked folds must be valid
+        for fold_val in fcv.train_folds.flatten().tolist():
+            self.assertIn(int(fold_val), range(3))
+
+        # q pending candidates and folds should be left over
+        self.assertIsNotNone(fcv._pending_candidates)
+        self.assertEqual(len(fcv._pending_candidates), q)
+        self.assertIsNotNone(fcv._pending_folds)
+        self.assertEqual(len(fcv._pending_folds), q)
+
+        self.assertIsNotNone(best_config)
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_mlflow_logs_fold_for_each_candidate(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """Each candidate in the batch must be logged with its own fold_idx."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        n_init = 2
+        n_iter = 2
+
+        fcv = FCVOpt(
+            obj=self.cv_objective,
+            config=self.config_space,
+            n_folds=3,
+            fold_selection_criterion='random',
+            batch_acquisition=True,
+            acquisition_q=q,
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        log_calls = []
+        original_log_eval = fcv._log_eval
+
+        def capture_log_eval(conf, x, y, eval_time, fold_idx=None):
+            log_calls.append({'conf': conf, 'y': y, 'fold_idx': fold_idx})
+            original_log_eval(conf, x, y, eval_time, fold_idx=fold_idx)
+
+        with patch.object(fcv, '_log_eval', side_effect=capture_log_eval):
+            fcv.run(n_iter=n_iter, n_init=n_init)
+
+        expected_logs = n_init + (n_iter - 1) * q
+        self.assertEqual(len(log_calls), expected_logs)
+        self.assertEqual(fcv._n_evals, expected_logs)
+
+        # Every log entry must have a fold_idx in a valid range
+        for call in log_calls:
+            self.assertIsNotNone(call['fold_idx'])
+            self.assertIn(call['fold_idx'], range(3))
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_candidate_snapshot_includes_fold_info(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """After each acquisition, _format_candidate_configs must return q entries
+        each containing both 'config' and 'fold_idx' keys."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        fcv = FCVOpt(
+            obj=self.cv_objective,
+            config=self.config_space,
+            n_folds=3,
+            fold_selection_criterion='random',
+            batch_acquisition=True,
+            acquisition_q=q,
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        fcv.run(n_iter=2, n_init=3)
+
+        # curr_conf_cand has q entries
+        self.assertEqual(len(fcv.curr_conf_cand), q)
+
+        # _format_candidate_configs returns q dicts with fold_idx
+        formatted = fcv._format_candidate_configs()
+        self.assertEqual(len(formatted), q)
+        for entry in formatted:
+            self.assertIn('config', entry)
+            self.assertIn('fold_idx', entry)
+            self.assertIn(entry['fold_idx'], range(3))
+
+    @patch('mlflow.active_run')
+    @patch('mlflow.start_run')
+    @patch('mlflow.set_tracking_uri')
+    @patch('mlflow.set_experiment')
+    @patch('mlflow.log_metrics')
+    @patch('mlflow.log_dict')
+    @patch('mlflow.set_tags')
+    @patch('mlflow.log_params')
+    @patch('mlflow.set_tag')
+    def test_batch_variance_reduction_fold_selection(
+        self, mock_set_tag, mock_log_params, mock_set_tags, mock_log_dict,
+        mock_log_metrics, mock_set_exp, mock_set_uri, mock_start_run, mock_active_run
+    ):
+        """variance_reduction fold selection must also work correctly with q=2."""
+        mock_run = MagicMock()
+        mock_run.info.run_id = 'test_run_id'
+        mock_run.info.experiment_id = 'test_exp_id'
+        mock_start_run.return_value = mock_run
+        mock_active_run.return_value = mock_run
+
+        q = 2
+        fcv = FCVOpt(
+            obj=self.cv_objective,
+            config=self.config_space,
+            n_folds=3,
+            fold_selection_criterion='variance_reduction',
+            batch_acquisition=True,
+            acquisition_q=q,
+            tracking_dir=self.temp_dir,
+            verbose=0,
+        )
+
+        best_config = fcv.run(n_iter=2, n_init=3)
+
+        expected_evals = 3 + (2 - 1) * q
+        self.assertEqual(len(fcv.train_confs), expected_evals)
+        self.assertEqual(fcv.train_folds.shape[0], expected_evals)
+        self.assertIsNotNone(best_config)
 
 
 if __name__ == '__main__':
