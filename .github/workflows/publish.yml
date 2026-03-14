@@ -98,8 +98,8 @@ jobs:
       - name: Verify importability and version
         run: |
           python -c "
-          import fcvopt
-          print('fcvopt version:', fcvopt.__version__)
+          from importlib.metadata import version
+          print('fcvopt version:', version('fcvopt'))
           from fcvopt.optimizers import FCVOpt, BayesOpt
           from fcvopt.crossvalidation import CVObjective, SklearnCVObj
           from fcvopt.configspace import ConfigurationSpace

@@ -9,6 +9,9 @@ from fcvopt.optimizers import BayesOpt, FCVOpt
 from fcvopt.crossvalidation import CVObjective, SklearnCVObj
 from fcvopt.configspace import ConfigurationSpace
 
+from importlib.metadata import version
+__version__ = version("fcvopt")
+
 __all__ = [
     "__version__",
     "BayesOpt",
