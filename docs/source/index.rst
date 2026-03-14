@@ -1,24 +1,22 @@
-Welcome to FCVOpt's Documentation!
-====================================
+FCVOpt
+======
 
-FCVOpt is a Python package for Fractional Cross-Validation in hyperparameter optimization. It implements the methodology from `"Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms" <https://doi.org/10.1080/00401706.2025.2515926>`_ using hierarchical Gaussian processes to efficiently optimize ML models by evaluating only a fraction of CV folds.
+FCVOpt is a Python package for hyperparameter optimization via Fractional Cross-Validation. It implements the methodology from `"Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms" <https://doi.org/10.1080/00401706.2025.2515926>`_ using hierarchical Gaussian processes to efficiently optimize ML models by evaluating only a fraction of CV folds.
 
-Key Innovation: While K-fold cross-validation is more robust than holdout validation, it is computationally expensive since models must be fit K times at each hyperparameter configuration. FCVOpt addresses this by exploiting the correlation structure between folds across the hyperparameter space, requiring evaluation of only a single fold for many configurations.
+K-fold cross-validation is more robust than holdout validation, but requires fitting K models per hyperparameter configuration—making it expensive inside an optimization loop. FCVOpt sidesteps this by modeling the correlation structure of fold-wise losses across the hyperparameter space with a hierarchical GP, so that most configurations need only a single fold evaluated.
 
-🚀 Key Features
--------------------
+Features
+--------
 
-* Efficient Optimization: Evaluate hyperparameters using only a subset of CV folds via hierarchical Gaussian processes
-* Standard Bayesian Optimization: Available for hyperparameter optimization with holdout loss and for general purpose optimization
-* Intelligent Fold Selection: Variance reduction strategy that selects which CV folds to evaluate at each configuration
-* MLflow Integration: Automatic experiment tracking and model versioning
-* Multiple Acquisition Functions: Knowledge Gradient, Lower Confidence Bound
-* Framework Support: Scikit-learn, XGBoost, Neural Networks, and more
+* Fractional CV optimization via hierarchical Gaussian processes, with support for repeated K-fold cross-validation
+* Standard Bayesian optimization with holdout loss, available for both hyperparameter tuning and general black-box optimization
+* Fold selection via variance reduction, which chooses the most informative fold to evaluate at each step
+* MLflow integration for experiment tracking and model checkpointing
+* Acquisition functions: Knowledge Gradient and Lower Confidence Bound
+* Works with scikit-learn estimators, XGBoost, and neural networks (via PyTorch-Skorch)
 
-📖 Quick Start
-------------------
-
-Install FCVOpt:
+Installation
+------------
 
 .. code-block:: bash
 
@@ -26,7 +24,8 @@ Install FCVOpt:
    cd fcvopt
    pip install .
 
-Basic usage:
+Quick Start
+-----------
 
 .. code-block:: python
 
@@ -38,50 +37,52 @@ Basic usage:
    from ConfigSpace import Integer, Float
 
 
-   # Create CV objective
+   # Define the CV objective
    cv_obj = SklearnCVObj(
       estimator=RandomForestClassifier(),
       X=X, y=y,
-      loss_metric=zero_one_loss,  # Metric to minimize
+      loss_metric=zero_one_loss,
       task='binary-classification',
-      n_splits=5, # 5-fold cross-validation
+      n_splits=5,
       rng_seed=42
    )
 
-   # define the hyperparameter configuration space
+   # Define the hyperparameter search space
    config = ConfigurationSpace()
    config.add([
-      Integer('n_estimators', bounds=(10,1000), log=True),
-      Integer('max_depth', bounds=(1,12), log=True),
+      Integer('n_estimators', bounds=(10, 1000), log=True),
+      Integer('max_depth', bounds=(1, 12), log=True),
       Float('max_features', bounds=(0.1, 1), log=True),
    ])
    config.generate_indices()
 
-   # Initialize optimizer
+   # Set up the optimizer
    optimizer = FCVOpt(
       obj=cv_obj.cvloss,
       n_folds=cv_obj.cv.get_n_splits(),
       config=config,
-      acq_function = 'LCB', # 'KG' gives better results but is slower
-      tracking_dir='./hp_opt_runs/', # for mlflow tracking,
+      acq_function='LCB',           # 'KG' tends to work better but is slower
+      fold_selection_criterion='variance_reduction',
+      tracking_dir='./hpt_opt_runs/',
       experiment_name='rf_hpt'
    )
-   
-   # run optimization with a budget of 50 trials
-   best_conf = optimizer.optimize(n_trials=50)
 
-🔬 Research Background
---------------------------
+   # Run 50 trials, using 10 random initializations before switching to acquisition
+   best_conf = optimizer.optimize(n_trials=50, n_init=10)
+   optimizer.end_run()
+
+Research
+--------
 
 FCVOpt implements the algorithm described in:
 
-"Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms"
-*Suraj Yerramilli and Daniel W. Apley*
-Published in *Technometrics* (2025)
-DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.2515926>`_
+| "Fractional cross-validation for optimizing hyperparameters of supervised learning algorithms"
+| *Suraj Yerramilli and Daniel W. Apley*
+| *Technometrics* (2025)
+| DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.2515926>`_
 
-📚 Documentation Contents
-------------------------------
+Contents
+--------
 
 .. toctree::
    :maxdepth: 1
@@ -90,6 +91,7 @@ DOI: `10.1080/00401706.2025.2515926 <https://doi.org/10.1080/00401706.2025.25159
    examples/01_Introduction_to_FCVOpt.ipynb
    examples/02_Tuning_Lightgbm_Sklearn_API.ipynb
    examples/03_Extending_CVobjective.ipynb
+   examples/04_Standard_BO.ipynb
 
 .. toctree::
    :maxdepth: 2
