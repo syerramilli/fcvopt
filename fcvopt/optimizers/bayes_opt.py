@@ -5,7 +5,6 @@ from typing import Optional, Dict, List, Tuple, Callable, Any
 import numpy as np
 import torch
 import gpytorch
-import mlflow
 from mlflow.tracking import MlflowClient
 import tempfile
 import warnings
@@ -171,6 +170,10 @@ class BayesOpt:
         If this is the first call, initializes the optimizer with n_init random points.
         If called again on the same instance, continues optimization from where it left off.
 
+        The MLflow run remains active after this method returns, allowing for continuation
+        runs. Call :meth:`end_run` when finished to properly close the MLflow run, or use
+        the optimizer as a context manager for automatic cleanup.
+
         Args:
             n_iter (int): Number of acquisition iterations to run.
             n_init (int, optional): Number of initial random points. Only used on first call.
@@ -179,16 +182,33 @@ class BayesOpt:
 
         Returns:
             Configuration: Best configuration found so far.
+
+        Examples:
+            Using context manager (recommended):
+
+            >>> with BayesOpt(obj=objective, config=cs) as bo:
+            ...     bo.run(n_iter=10)
+            ...     bo.run(n_iter=5)  # continuation
+            ... # MLflow run automatically closed
+
+            Manual run management:
+
+            >>> bo = BayesOpt(obj=objective, config=cs)
+            >>> bo.run(n_iter=10)
+            >>> bo.run(n_iter=5)  # continuation
+            >>> bo.end_run()  # must call to close MLflow run
         """
         # Check if this is a continuation
         is_continuation = self.train_confs is not None
 
-        # Initialize MLflow on first call, or reactivate on continuation
+        # Initialize MLflow on first call
         if not self._mlflow_initialized:
             self._initialize_mlflow()
         elif is_continuation:
-            # Reactivate the existing run for continuation
-            self._ensure_mlflow_active()
+            # Ensure the run is still in RUNNING state for continuation
+            run_info = self._client.get_run(self._run_id).info
+            if run_info.status != "RUNNING":
+                self._client.update_run(self._run_id, status="RUNNING")
         if is_continuation and n_init is not None:
             if self.verbose >= 1:
                 print(f"Warning: n_init={n_init} ignored for continuation run")
@@ -231,22 +251,14 @@ class BayesOpt:
             print(f'Estimated obj at incumbent.........: {self.curr_f_inc_est:.6g}')
             print(f'\n Best Configuration {status_msg}:\n', self.curr_conf_inc)
 
-        # Log current metrics
-        self._ensure_mlflow_active()
-        mlflow.log_metrics({
+        # Log current metrics (run stays active for potential continuation)
+        for k, v in {
             "current_f_inc_obs": float(self.curr_f_inc_obs),
             "current_f_inc_est": float(self.curr_f_inc_est),
             "total_evals": int(len(self.train_confs)),
-        })
-
-        # For first run, end the MLflow run. For subsequent runs, continue the same run.
-        if not is_continuation:
-            mlflow.log_metrics({
-                "final_f_inc_obs": float(self.curr_f_inc_obs),
-                "final_f_inc_est": float(self.curr_f_inc_est),
-            })
-            mlflow.set_tag("status", "completed")
-            mlflow.end_run()
+        }.items():
+            self._client.log_metric(self._run_id, k, v)
+        self._client.set_tag(self._run_id, "status", "running")
 
         return self.curr_conf_inc
     
@@ -334,26 +346,35 @@ class BayesOpt:
             return self.run(n_iter=n_iter, n_init=n_init)
 
     def end_run(self):
-        """Manually end the MLflow run.
+        """End the MLflow run and log final metrics.
 
         Logs final metrics and sets the run status to completed before ending the run.
-        This method is useful when you want to explicitly finish tracking before the
-        optimizer goes out of scope.
+        This method should be called when optimization is finished to properly close
+        the MLflow run.
 
         Note:
-            This method is automatically called when using the optimizer as a context manager
-            or when the first call to run() completes. Subsequent calls to run() will
-            reactivate the same MLflow run.
+            This method is automatically called when using the optimizer as a context
+            manager. If not using a context manager, call this explicitly when done
+            to avoid leaving the MLflow run in an active state.
+
+        Examples:
+            >>> bo = BayesOpt(obj=objective, config=cs)
+            >>> bo.run(n_iter=10)
+            >>> bo.run(n_iter=5)  # continuation
+            >>> bo.end_run()  # properly closes the MLflow run
         """
-        if self._mlflow_initialized and mlflow.active_run() is not None:
-            # Log final metrics when manually ending
-            if hasattr(self, 'curr_f_inc_obs') and self.curr_f_inc_obs is not None:
-                mlflow.log_metrics({
-                    "final_f_inc_obs": float(self.curr_f_inc_obs),
-                    "final_f_inc_est": float(self.curr_f_inc_est),
-                })
-            mlflow.set_tag("status", "completed")
-            mlflow.end_run()
+        if not self._mlflow_initialized or self._run_id is None:
+            return
+
+        if hasattr(self, 'curr_f_inc_obs') and self.curr_f_inc_obs is not None:
+            for k, v in {
+                "final_f_inc_obs": float(self.curr_f_inc_obs),
+                "final_f_inc_est": float(self.curr_f_inc_est),
+                "final_total_evals": int(len(self.train_confs)) if self.train_confs else 0,
+            }.items():
+                self._client.log_metric(self._run_id, k, v)
+        self._client.set_tag(self._run_id, "status", "completed")
+        self._client.set_terminated(self._run_id, status="FINISHED")
 
     def get_optimization_results(self) -> List[Dict[str, Any]]:
         """Retrieve detailed optimization results for all iterations.
@@ -560,17 +581,17 @@ class BayesOpt:
 
         if tracking_uri:
             if tracking_uri.startswith("file:"):
-                local_path = tracking_uri[len("file:"):]
-                _ensure_dir_exists(os.path.abspath(local_path))
-            mlflow.set_tracking_uri(tracking_uri)
+                _ensure_dir_exists(os.path.abspath(tracking_uri[len("file:"):]))
+            resolved_tracking_uri = tracking_uri
         elif tracking_dir:
             base_dir = os.path.abspath(tracking_dir)
             _ensure_dir_exists(base_dir)
             resolved_tracking_uri = f"file:{base_dir}"
-            mlflow.set_tracking_uri(resolved_tracking_uri)
-            tracking_uri = resolved_tracking_uri  # Store for later use
+            tracking_uri = resolved_tracking_uri
+        else:
+            resolved_tracking_uri = None
 
-        client = MlflowClient()
+        client = MlflowClient(tracking_uri=resolved_tracking_uri)
 
         # Find the run
         if run_id:
@@ -680,7 +701,7 @@ class BayesOpt:
             inst._client = client
             inst._run_id = run_id
             inst._experiment_id = run_info.experiment_id
-            inst._tracking_uri = tracking_uri or mlflow.get_tracking_uri()
+            inst._tracking_uri = resolved_tracking_uri
 
             # Store MLflow config for potential reactivation
             inst._mlflow_config = {
@@ -810,92 +831,85 @@ class BayesOpt:
         called automatically on the first call to run() and handles directory creation
         for file-based tracking URIs.
 
-        Note:
-            Ends any existing active run to prevent UUID conflicts.
+        Uses MlflowClient directly to avoid mutating global MLflow state.
         """
         if self._mlflow_initialized:
             return
-
-        # End any existing active run to prevent UUID conflicts
-        if mlflow.active_run() is not None:
-            mlflow.end_run()
-
-        def _ensure_dir_exists(path: str):
-            os.makedirs(path, exist_ok=True)
-            return path
 
         tracking_uri = self._mlflow_config['tracking_uri']
         tracking_dir = self._mlflow_config['tracking_dir']
 
         if tracking_uri:
             if tracking_uri.startswith("file:"):
-                local_path = tracking_uri[len("file:"):]
-                _ensure_dir_exists(os.path.abspath(local_path))
+                os.makedirs(os.path.abspath(tracking_uri[len("file:"):]), exist_ok=True)
             resolved_tracking_uri = tracking_uri
         else:
-            base_dir = tracking_dir or "./mlruns"
-            base_dir = os.path.abspath(base_dir)
-            _ensure_dir_exists(base_dir)
+            base_dir = os.path.abspath(tracking_dir or "./mlruns")
+            os.makedirs(base_dir, exist_ok=True)
             resolved_tracking_uri = f"file:{base_dir}"
 
-        mlflow.set_tracking_uri(resolved_tracking_uri)
-
-        # Set experiment
-        exp_name = self._mlflow_config['experiment'] or "BayesOpt"
-        mlflow.set_experiment(exp_name)
-
-        # Start new run
-        self._run = mlflow.start_run(run_name=self._mlflow_config['run_name'])
-        self._client = MlflowClient()
-        self._run_id = mlflow.active_run().info.run_id
-        self._experiment_id = mlflow.active_run().info.experiment_id
         self._tracking_uri = resolved_tracking_uri
+        self._client = MlflowClient(tracking_uri=resolved_tracking_uri)
+
+        # Get or create experiment
+        exp_name = self._mlflow_config['experiment'] or "BayesOpt"
+        experiment = self._client.get_experiment_by_name(exp_name)
+        exp_id = experiment.experiment_id if experiment else self._client.create_experiment(exp_name)
+        self._experiment_id = exp_id
+
+        # Create a new run
+        run_name = self._mlflow_config['run_name']
+        run = self._client.create_run(
+            experiment_id=exp_id,
+            tags={"mlflow.runName": run_name or ""},
+        )
+        self._run_id = run.info.run_id
 
         # Log meta information
-        mlflow.set_tags({
+        seed_val = self._mlflow_config['seed']
+        for k, v in {
             "framework": "BayesOpt",
             "acq_function": self.acq_function,
             "batch_acquisition": str(self.batch_acquisition),
-            "seed": str(self._mlflow_config['seed']) if self._mlflow_config['seed'] is not None else "",
-        })
+            "seed": str(seed_val) if seed_val is not None else "",
+        }.items():
+            self._client.set_tag(self._run_id, k, v)
 
-        mlflow.log_params({
-            "minimize": self.minimize,
-            "acquisition_q": self.acquisition_q,
-            "n_jobs": self.n_jobs,
-            "model_checkpoint_freq": self._model_checkpoint_freq,
-        })
+        for k, v in {
+            "minimize": str(self.minimize),
+            "acquisition_q": str(self.acquisition_q),
+            "n_jobs": str(self.n_jobs),
+            "model_checkpoint_freq": str(self._model_checkpoint_freq),
+        }.items():
+            self._client.log_param(self._run_id, k, v)
 
         # Write config space as an artifact
         self._log_config_space()
         self._mlflow_initialized = True
 
-    def _ensure_mlflow_active(self):
-        """Ensure MLflow run is active before logging.
-
-        Checks if MLflow is initialized and if a run is currently active. If not initialized,
-        calls _initialize_mlflow(). If initialized but no active run, reactivates the
-        stored run using the run_id.
-
-        This method is called before any MLflow logging operations to ensure proper state.
-        """
-        if not self._mlflow_initialized:
-            self._initialize_mlflow()
-        elif mlflow.active_run() is None:
-            # Reactivate the run if it was ended
-            mlflow.start_run(run_id=self._run_id)
+    def _log_dict_via_client(self, payload: dict, artifact_file: str) -> None:
+        """Serialize payload to JSON and log as an MLflow artifact via MlflowClient."""
+        artifact_path = os.path.dirname(artifact_file)
+        filename = os.path.basename(artifact_file)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False,
+                                         prefix=filename + "_") as tmp:
+            json.dump(payload, tmp)
+            tmp_path = tmp.name
+        try:
+            self._client.log_artifact(
+                self._run_id, tmp_path,
+                artifact_path=artifact_path or None,
+            )
+        finally:
+            os.unlink(tmp_path)
 
     def _log_config_space(self):
         """Log the configuration space as an MLflow artifact.
 
         Serializes the configuration space to JSON and logs it as an artifact
         named 'config_space.json'.
-
-        Note:
-            Does not call _ensure_mlflow_active to avoid recursion during initialization.
         """
-        # Don't call _ensure_mlflow_active here to avoid recursion
-        mlflow.log_dict(self.config.to_serialized_dict(), artifact_file="config_space.json")
+        self._log_dict_via_client(self.config.to_serialized_dict(), "config_space.json")
 
     def _log_eval(self, conf: Configuration, x: np.ndarray, y: float, eval_time: float, **kwargs):
         """Log a single evaluation as a JSON artifact.
@@ -909,7 +923,6 @@ class BayesOpt:
             eval_time: Time taken to evaluate the configuration.
             **kwargs: Additional key-value pairs to include in the evaluation log.
         """
-        self._ensure_mlflow_active()
         idx = self._n_evals
         payload = {
             "idx": idx,
@@ -920,7 +933,7 @@ class BayesOpt:
         }
         # Add any additional information from kwargs
         payload.update(kwargs)
-        mlflow.log_dict(payload, artifact_file=f"evals/eval_{idx:03d}.json")
+        self._log_dict_via_client(payload, f"evals/eval_{idx:03d}.json")
         self._n_evals += 1
 
     def _format_candidate_configs(self):
@@ -946,7 +959,6 @@ class BayesOpt:
             "metrics": { ... }          # same scalars for convenient browsing
             }
         """
-        self._ensure_mlflow_active()
         metrics = {
             "f_inc_obs": float(self.curr_f_inc_obs),
             "f_inc_est": float(self.curr_f_inc_est),
@@ -954,7 +966,8 @@ class BayesOpt:
             "acq_opt_time": float(self.curr_acq_opt_time),
             "acq_val": float(self.curr_acq_val),
         }
-        mlflow.log_metrics(metrics, step=i)
+        for k, v in metrics.items():
+            self._client.log_metric(self._run_id, k, v, step=i)
 
         # write compact per-iteration snapshot with configs
         snapshot = {
@@ -963,7 +976,7 @@ class BayesOpt:
             "conf_cand": self._format_candidate_configs(),
             "metrics": metrics,
         }
-        mlflow.log_dict(snapshot, artifact_file=f"iterations/iter_{i:03d}.json")
+        self._log_dict_via_client(snapshot, f"iterations/iter_{i:03d}.json")
 
     def _save_and_log_model_state_iter(self, i: int, is_final: bool = False):
         """Checkpoint model weights based on frequency or if final iteration."""
@@ -996,8 +1009,7 @@ class BayesOpt:
         torch.save(self.model.state_dict(), local_path)
 
         # Log to MLflow. The artifact will be saved as checkpoints/<fname>
-        self._ensure_mlflow_active()
-        mlflow.log_artifact(local_path, artifact_path="checkpoints")
+        self._client.log_artifact(self._run_id, local_path, artifact_path="checkpoints")
 
     def _get_iteration_data_from_artifacts(self) -> List[Dict[str, Any]]:
         """Retrieve iteration data from MLflow artifacts if available."""
@@ -1005,8 +1017,7 @@ class BayesOpt:
             return []
 
         try:
-            from mlflow.tracking import MlflowClient
-            client = MlflowClient()
+            client = self._client
 
             # List iteration artifacts
             try:
