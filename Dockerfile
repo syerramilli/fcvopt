@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.11
 
 # Set the working directory in the container
 WORKDIR /app
@@ -14,7 +14,7 @@ COPY . /app
 RUN pip install --upgrade pip
 
 # Install the CPU only version of PyTorch (the index-url must be specified for Linux distributions)
-RUN pip install torch==2.2.0 --index-url https://download.pytorch.org/whl/cpu
+RUN pip install torch==2.7 --index-url https://download.pytorch.org/whl/cpu
 
 # Install the fcvopt library along with required dependencies
 # and the extra dependencies for the experiments
