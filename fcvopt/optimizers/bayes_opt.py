@@ -1241,15 +1241,15 @@ class BayesOpt:
         """
         if self.acq_function == 'EI':
             best_f = -self.curr_f_inc_est if self.minimize else self.curr_f_inc_est
-            return (qExpectedImprovement(self.model, best_f, sampler=SobolQMCNormalSampler(128, seed=0))
+            return (qExpectedImprovement(self.model, best_f, sampler=SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=0))
                     if self.batch_acquisition else ExpectedImprovement(self.model, best_f))
         elif self.acq_function == 'LCB':
             beta = torch.tensor(4.0, dtype=torch.double)
-            return (qUpperConfidenceBound(self.model, beta, sampler=SobolQMCNormalSampler(128, seed=0))
+            return (qUpperConfidenceBound(self.model, beta, sampler=SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=0))
                     if self.batch_acquisition else UpperConfidenceBound(self.model, beta))
         elif self.acq_function == 'KG':
             num_fantasies = 32
-            return qKnowledgeGradient(self.model, sampler=SobolQMCNormalSampler(num_fantasies, seed=0),
+            return qKnowledgeGradient(self.model, sampler=SobolQMCNormalSampler(sample_shape=torch.Size([num_fantasies]), seed=0),
                                       num_fantasies=num_fantasies)
         else:
             raise ValueError(f"Unknown acquisition function: {self.acq_function}")
