@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fcvopt"
-version = "0.5.0"
+version = "0.5.1"
 description = "Fractional K-fold cross-validation for hyperparameter optimization"
 readme = "README.pypi.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
-    {name = "Suraj Yerramilli", email = "surajyerramilli@gmail.com"},
+    {name = "Suraj Yerramilli"},
     {name = "Daniel W. Apley"},
 ]
 maintainers = [
