@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 try:
-    from skorch import NeuralNetRegressor, NeuralNetClassifier
+    from skorch import NeuralNetRegressor, NeuralNetClassifier, NeuralNetBinaryClassifier
     from skorch.callbacks import EarlyStopping, EpochScoring, LRScheduler
     from skorch.dataset import ValidSplit
 except ImportError as e:
@@ -172,16 +172,18 @@ class ResNetCVObj(SklearnCVObj):
 
     Args:
         max_epochs: Maximum training epochs per fold.
-        optimizer: Optimizer name from ``torch.optim`` (e.g., ``'SGD'``, ``'Adam'``, ``'RMSprop'``).
+        optimizer: Optimizer name from ``torch.optim`` (e.g., ``'SGD'``, ``'Adam'``, ``'AdamW'``).
+        batch_size: Mini-batch size used during training. Can be overridden here if the
+            user wants to tune it externally; otherwise leave at the default (``256``).
         **kwargs: Forwarded to :class:`SklearnCVObj` (e.g., ``X``, ``y``, ``task``,
             ``loss_metric``, CV settings, ``needs_proba``, etc.).
 
     Notes:
         * Tasks: ``'regression'``, ``'binary_classification'``, or ``'classification'``.
-          For binary classification, the model outputs two logits (softmax recommended at inference).
+          For binary classification, ``BCEWithLogitsLoss`` is used with a single output logit.
         * A ``ValidSplit(10, stratified=...)`` is used; stratification is enabled for
           classification tasks.
-        * Labels are cast appropriately: int64 for classification.
+        * Labels are cast appropriately: int64 for multiclass, float32 for binary/regression.
 
     Expected keys in ``params`` (for :meth:`construct_model`):
         - ``n_hidden``: number of residual blocks
@@ -192,27 +194,28 @@ class ResNetCVObj(SklearnCVObj):
         - ``residual_dropout``: dropout on residual output
         - ``lr``: learning rate
         - ``weight_decay``: L2 weight decay
-        - ``batch_size``: batch size
         - ``momentum``: (only if ``optimizer == 'SGD'``)
     """
     def __init__(
         self,
         max_epochs: int = 100,
-        optimizer: str = "SGD",
+        optimizer: str = "AdamW",
+        batch_size: int = 256,
         **kwargs,
     ):
         super().__init__(estimator=None, **kwargs)
         self.max_epochs = max_epochs
         self.optimizer = optimizer
+        self.batch_size = batch_size
 
         # Determine target formatting / output dimension
         self.num_targets = 1
-        if "classification" in self.task:
+        if self.task == "classification":
             self.y = self.y.astype(np.int64)
-            if self.task == "classification":
-                self.num_targets = int(np.unique(self.y).size)
-            elif self.task == "binary_classification":
-                self.num_targets = 2  # two logits for CE
+            self.num_targets = int(np.unique(self.y).size)
+        elif self.task == "binary_classification":
+            self.y = self.y.astype(np.float32)
+            self.num_targets = 1
 
         self.input_dim = self.X.shape[1]
 
@@ -226,10 +229,12 @@ class ResNetCVObj(SklearnCVObj):
         if self.task == "regression":
             skorch_class = NeuralNetRegressor
             criterion = nn.MSELoss
-        else:
-            # Multiclass or binary classification → CrossEntropyLoss
+        elif self.task == "classification":
             skorch_class = NeuralNetClassifier
             criterion = nn.CrossEntropyLoss
+        else:  # binary_classification
+            skorch_class = NeuralNetBinaryClassifier
+            criterion = nn.BCEWithLogitsLoss
 
         model = skorch_class(
             module=TabularResNet,
@@ -248,7 +253,7 @@ class ResNetCVObj(SklearnCVObj):
                 EpochScoring(
                     scoring=make_scorer(
                         self.loss_metric,
-                        needs_proba=self.needs_proba,
+                        response_method='predict_proba' if self.needs_proba else 'predict',
                         greater_is_better=False,  # treat metric as loss
                     ),
                     lower_is_better=True,
@@ -269,7 +274,7 @@ class ResNetCVObj(SklearnCVObj):
             optimizer__lr=params["lr"],
             optimizer__weight_decay=params["weight_decay"],
             max_epochs=self.max_epochs,
-            batch_size=params.get("batch_size", 256),
+            batch_size=self.batch_size,
             train_split=ValidSplit(10, stratified=("classification" in self.task)),
             verbose=0,
         )
