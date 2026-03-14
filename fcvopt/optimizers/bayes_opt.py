@@ -217,7 +217,9 @@ class BayesOpt:
                 print(f"Warning: n_init={n_init} ignored for continuation run")
             n_init = None  # Ignore n_init for continuation
 
-        output_header = '%6s %12s %12s %12s' % ('iter', 'f_inc_obs', 'f_inc_est', 'acq_val')
+        output_header = '%6s %8s %12s %12s %12s %10s %10s' % (
+            'iter', 'n_evals', 'f_inc_obs', 'f_inc_est', 'acq_val', 'fit_t(s)', 'acq_t(s)'
+        )
 
         for i in range(n_iter):
             # Use global iteration counter for logging
@@ -240,8 +242,11 @@ class BayesOpt:
             if self.verbose >= 2:
                 if global_iter % 10 == 0:
                     print(output_header)
-                print('%6i %12.3e %12.3e %12.3e' %
-                      (global_iter, self.curr_f_inc_obs, self.curr_f_inc_est, self.curr_acq_val))
+                print('%6i %8i %12.3e %12.3e %12.3e %10.2f %10.2f' % (
+                    global_iter, len(self.train_confs),
+                    self.curr_f_inc_obs, self.curr_f_inc_est, self.curr_acq_val,
+                    self.curr_fit_time, self.curr_acq_opt_time,
+                ))
 
         # Update total iterations counter
         self._total_iterations += n_iter
