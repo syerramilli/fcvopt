@@ -18,7 +18,7 @@ from ..fit.mll_scipy import fit_model_scipy
 from ..models import GPR
 
 from botorch.acquisition import (
-    ExpectedImprovement, qExpectedImprovement,
+    LogExpectedImprovement, qExpectedImprovement,
     UpperConfidenceBound, qUpperConfidenceBound,
     qKnowledgeGradient
 )
@@ -1210,7 +1210,7 @@ class BayesOpt:
                 self.train_confs.append(conf)
                 self._log_eval(conf, x, y, t_eval)
 
-            self.train_x = torch.cat([self.train_x, torch.tensor(np.row_stack(xs)).double().to(self.train_x)], dim=0)
+            self.train_x = torch.cat([self.train_x, torch.tensor(np.vstack(xs)).double().to(self.train_x)], dim=0)
             self.train_y = torch.cat([self.train_y, torch.tensor(np.array(ys)).double().to(self.train_y)], dim=0)
             self.obj_eval_time = torch.cat([self.obj_eval_time, torch.tensor(np.array(ts)).double().to(self.obj_eval_time)], dim=0)
             self._pending_candidates = None  # consumed
@@ -1320,7 +1320,7 @@ class BayesOpt:
         if self.acq_function == 'EI':
             best_f = -self.curr_f_inc_est if self.minimize else self.curr_f_inc_est
             return (qExpectedImprovement(self.model, best_f, sampler=SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=0))
-                    if self.batch_acquisition else ExpectedImprovement(self.model, best_f))
+                    if self.batch_acquisition else LogExpectedImprovement(self.model, best_f))
         elif self.acq_function == 'LCB':
             beta = torch.tensor(4.0, dtype=torch.double)
             return (qUpperConfidenceBound(self.model, beta, sampler=SobolQMCNormalSampler(sample_shape=torch.Size([128]), seed=0))

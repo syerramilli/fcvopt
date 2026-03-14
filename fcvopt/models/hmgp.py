@@ -174,10 +174,20 @@ class HGP(GPR):
         batch_shape = full_output.batch_shape
         joint_shape = full_output.event_shape
         tasks_shape = joint_shape[1:]  # For multitask learning
-        test_shape = torch.Size([joint_shape[0] - self.prediction_strategy.train_shape[0], *tasks_shape])
+        num_train = self.prediction_strategy.num_train
+        test_shape = torch.Size([joint_shape[0] - num_train, *tasks_shape])
+
+        # Split joint distribution into test components (GPyTorch >= 1.14 API)
+        test_mean = full_mean[..., num_train:]
+        test_test_covar = full_covar[..., num_train:, num_train:].evaluate_kernel()
+        test_train_covar = full_covar[..., num_train:, :num_train].evaluate_kernel()
 
         # Make the prediction
-        predictive_mean, predictive_covar = self.prediction_strategy.exact_prediction(full_mean, full_covar)
+        predictive_mean, predictive_covar = self.prediction_strategy.exact_prediction(
+            test_mean=test_mean,
+            test_test_covar=test_test_covar,
+            test_train_covar=test_train_covar,
+        )
 
         # Reshape predictive mean to match the appropriate event shape
         predictive_mean = predictive_mean.view(*batch_shape, *test_shape).contiguous()
@@ -197,9 +207,9 @@ class HGP(GPR):
             x_new = x.unsqueeze(0).repeat(num_samples,1,1)
         
         ## precompute quantities common across all folds
-        covar_f_new = self.covar_module(self.train_inputs[0],x_new).evaluate()
+        covar_f_new = self.covar_module(self.train_inputs[0],x_new).to_dense()
         covar_delta_new_x = self.covar_module_delta(self.train_inputs[0],x_new)
-        term1 = self.prediction_strategy.lik_train_train_covar.inv_matmul(covar_f_new)
+        term1 = self.prediction_strategy.lik_train_train_covar.solve(covar_f_new)
 
         # compute the fold selection criterion for all the folds
         out = []
@@ -210,7 +220,7 @@ class HGP(GPR):
             
             covar_delta_new = covar_delta_new_x.mul(
                 self.corr_delta_fold(self.train_inputs[1],fold_new)
-            ).evaluate()
+            ).to_dense()
             
             term4 = (covar_f_new+covar_delta_new).transpose(-1,-2).matmul(term1).flatten()
             out.append(

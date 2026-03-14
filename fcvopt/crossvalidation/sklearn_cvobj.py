@@ -181,8 +181,11 @@ class SklearnCVObj(CVObjective):
             y_train = (y_train - mean) / std
             # note: y_test scaling does not affect loss if metric uses raw scale
 
-        # define scorer
-        scorer = make_scorer(self.loss_metric, needs_proba=self.needs_proba)
+        # define scorer (scikit-learn >= 1.4: response_method replaces needs_proba)
+        if self.needs_proba:
+            scorer = make_scorer(self.loss_metric, response_method='predict_proba')
+        else:
+            scorer = make_scorer(self.loss_metric)
 
         # fit and score
         model.fit(X_train, y_train)
