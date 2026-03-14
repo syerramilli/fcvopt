@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fcvopt"
-version = "0.5.1"
+version = "0.5.2"
 description = "Fractional K-fold cross-validation for hyperparameter optimization"
 readme = "README.pypi.md"
 license = "MIT"
