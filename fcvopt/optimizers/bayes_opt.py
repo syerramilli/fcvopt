@@ -1,5 +1,6 @@
 import os, time, json, warnings, joblib, random
 from collections import OrderedDict
+from datetime import datetime
 from typing import Optional, Dict, List, Tuple, Callable, Any
 
 import numpy as np
@@ -60,8 +61,10 @@ class BayesOpt:
             Defaults to None.
         tracking_dir: Directory for MLflow tracking (e.g., "./results"). Gets converted to absolute
             file URI. Defaults to None.
-        experiment: MLflow experiment name. Defaults to None.
-        run_name: MLflow run name. Defaults to None.
+        experiment: MLflow experiment name. Defaults to the class name (e.g., ``"BayesOpt"``
+            or ``"FCVOpt"`` for subclasses).
+        run_name: MLflow run name. Defaults to a timestamp string of the form
+            ``"run_YYYYMMDD_HHMMSS"``.
         model_checkpoint_freq: Model checkpointing frequency. Save checkpoint every N iterations.
             1 = every iteration, 5 = every 5 iterations. Always saves final iteration.
             Defaults to 1.
@@ -246,10 +249,7 @@ class BayesOpt:
         # summary
         if self.verbose >= 1:
             status_msg = "after continuation" if is_continuation else "at termination"
-            print(f'\nNumber of candidates evaluated.....: {len(self.train_confs)}')
-            print(f'Observed obj at incumbent..........: {self.curr_f_inc_obs:.6g}')
-            print(f'Estimated obj at incumbent.........: {self.curr_f_inc_est:.6g}')
-            print(f'\n Best Configuration {status_msg}:\n', self.curr_conf_inc)
+            self._print_summary(status_msg)
 
         # Log current metrics (run stays active for potential continuation)
         for k, v in {
@@ -346,11 +346,11 @@ class BayesOpt:
             return self.run(n_iter=n_iter, n_init=n_init)
 
     def end_run(self):
-        """End the MLflow run and log final metrics.
+        """End the MLflow run and log final metrics and best configuration.
 
-        Logs final metrics and sets the run status to completed before ending the run.
-        This method should be called when optimization is finished to properly close
-        the MLflow run.
+        Logs ``final_f_inc_obs``, ``final_f_inc_est``, and ``final_total_evals`` as
+        metrics on the parent run, writes the best configuration to a
+        ``best_config.json`` artifact, and terminates the run with status FINISHED.
 
         Note:
             This method is automatically called when using the optimizer as a context
@@ -373,6 +373,8 @@ class BayesOpt:
                 "final_total_evals": int(len(self.train_confs)) if self.train_confs else 0,
             }.items():
                 self._client.log_metric(self._run_id, k, v)
+            if self.curr_conf_inc is not None:
+                self._log_dict_via_client(dict(self.curr_conf_inc), "best_config.json")
         self._client.set_tag(self._run_id, "status", "completed")
         self._client.set_terminated(self._run_id, status="FINISHED")
 
@@ -827,9 +829,13 @@ class BayesOpt:
     def _initialize_mlflow(self):
         """Initialize MLflow tracking (called lazily on first run).
 
-        Sets up MLflow tracking URI, experiment, and starts a new run. This method is
-        called automatically on the first call to run() and handles directory creation
+        Sets up MLflow tracking URI, experiment, and starts a new parent run. Called
+        automatically on the first call to :meth:`run` and handles directory creation
         for file-based tracking URIs.
+
+        The experiment name defaults to ``self.__class__.__name__`` when not provided,
+        so ``BayesOpt`` and ``FCVOpt`` instances land in separate experiments by default.
+        The run name defaults to a timestamp (``run_YYYYMMDD_HHMMSS``) when not provided.
 
         Uses MlflowClient directly to avoid mutating global MLflow state.
         """
@@ -852,23 +858,23 @@ class BayesOpt:
         self._client = MlflowClient(tracking_uri=resolved_tracking_uri)
 
         # Get or create experiment
-        exp_name = self._mlflow_config['experiment'] or "BayesOpt"
+        exp_name = self._mlflow_config['experiment'] or self.__class__.__name__
         experiment = self._client.get_experiment_by_name(exp_name)
         exp_id = experiment.experiment_id if experiment else self._client.create_experiment(exp_name)
         self._experiment_id = exp_id
 
         # Create a new run
-        run_name = self._mlflow_config['run_name']
+        run_name = self._mlflow_config['run_name'] or datetime.now().strftime("run_%Y%m%d_%H%M%S")
         run = self._client.create_run(
             experiment_id=exp_id,
-            tags={"mlflow.runName": run_name or ""},
+            tags={"mlflow.runName": run_name},
         )
         self._run_id = run.info.run_id
 
         # Log meta information
         seed_val = self._mlflow_config['seed']
         for k, v in {
-            "framework": "BayesOpt",
+            "framework": self.__class__.__name__,
             "acq_function": self.acq_function,
             "batch_acquisition": str(self.batch_acquisition),
             "seed": str(seed_val) if seed_val is not None else "",
@@ -911,17 +917,63 @@ class BayesOpt:
         """
         self._log_dict_via_client(self.config.to_serialized_dict(), "config_space.json")
 
-    def _log_eval(self, conf: Configuration, x: np.ndarray, y: float, eval_time: float, **kwargs):
-        """Log a single evaluation as a JSON artifact.
+    def _start_child_run(self, trial_idx: int, conf: Configuration, **extra_params) -> str:
+        """Create a nested child run for a single trial evaluation.
 
-        Records evaluation details as a JSON file without large tensors for efficient storage.
+        The child run is nested under the parent optimization run and logs
+        the hyperparameter configuration as params. Extra keyword arguments
+        (e.g., fold_idx for FCVOpt) are also logged as params.
+
+        Args:
+            trial_idx: Sequential index of this trial.
+            conf: The hyperparameter configuration being evaluated.
+            **extra_params: Additional params to log (e.g., fold_idx).
+
+        Returns:
+            str: The run ID of the created child run.
+        """
+        child_run = self._client.create_run(
+            experiment_id=self._experiment_id,
+            tags={
+                "mlflow.parentRunId": self._run_id,
+                "mlflow.runName": f"trial_{trial_idx:03d}",
+            },
+        )
+        child_run_id = child_run.info.run_id
+        self._client.log_param(child_run_id, "trial_idx", str(trial_idx))
+        for k, v in dict(conf).items():
+            self._client.log_param(child_run_id, k, str(v))
+        for k, v in extra_params.items():
+            self._client.log_param(child_run_id, k, str(v))
+        return child_run_id
+
+    def _end_child_run(self, child_run_id: str, loss: float, eval_time: float) -> None:
+        """Log result metrics and terminate a child run.
+
+        Args:
+            child_run_id: The run ID of the child run to close.
+            loss: Objective value observed for this trial.
+            eval_time: Wall-clock seconds spent evaluating the trial.
+        """
+        self._client.log_metric(child_run_id, "loss", loss)
+        self._client.log_metric(child_run_id, "eval_time", eval_time)
+        self._client.set_terminated(child_run_id, status="FINISHED")
+
+    def _log_eval(self, conf: Configuration, x: np.ndarray, y: float, eval_time: float, **kwargs):
+        """Log a single evaluation as both a JSON artifact and a nested child run.
+
+        Writes ``evals/eval_NNN.json`` to the parent run's artifact store (used by
+        :meth:`restore_from_mlflow`) and creates a nested child run that logs the
+        hyperparameter configuration as params and ``loss``/``eval_time`` as metrics.
+        Any extra keyword arguments (e.g., ``fold_idx`` for FCVOpt) are included in
+        both the artifact payload and the child run's params.
 
         Args:
             conf: Configuration that was evaluated.
             x: Numeric array representation of the configuration.
             y: Objective function value.
             eval_time: Time taken to evaluate the configuration.
-            **kwargs: Additional key-value pairs to include in the evaluation log.
+            **kwargs: Additional key-value pairs to include in the log (e.g., fold_idx).
         """
         idx = self._n_evals
         payload = {
@@ -934,6 +986,11 @@ class BayesOpt:
         # Add any additional information from kwargs
         payload.update(kwargs)
         self._log_dict_via_client(payload, f"evals/eval_{idx:03d}.json")
+
+        # Create a nested child run for this trial (for MLflow UI visibility)
+        child_run_id = self._start_child_run(idx, conf, **kwargs)
+        self._end_child_run(child_run_id, float(y), float(eval_time))
+
         self._n_evals += 1
 
     def _format_candidate_configs(self):
@@ -1037,10 +1094,10 @@ class BayesOpt:
                         file_path = client.download_artifacts(self._run_id, iter_file, dst_path=tmp_dir)
                         with open(file_path, 'r') as f:
                             data = json.load(f)
-                            if 'conf_inc' in data and 'f_inc_obs' in data:
+                            if 'conf_inc' in data and 'f_inc_obs' in data.get('metrics', {}):
                                 iteration_data.append({
                                     'incumbent_config': data['conf_inc'],
-                                    'observed_value': data['f_inc_obs']
+                                    'observed_value': data['metrics']['f_inc_obs']
                                 })
                     except Exception:
                         continue
@@ -1095,6 +1152,13 @@ class BayesOpt:
             return np.array(list(config_dict.values()))
 
     # --------------------------- core methods --------------------------- #
+    def _print_summary(self, status_msg: str) -> None:
+        """Print end-of-run summary. Subclasses may override to change label wording."""
+        print(f'\nNumber of candidates evaluated.....: {len(self.train_confs)}')
+        print(f'Observed obj at incumbent..........: {self.curr_f_inc_obs:.6g}')
+        print(f'Estimated obj at incumbent.........: {self.curr_f_inc_est:.6g}')
+        print(f'\n Best Configuration {status_msg}:\n', self.curr_conf_inc)
+
     def _initialize(self, n_init: Optional[int]):
         """Initialize optimizer with random points or evaluate pending candidates.
 

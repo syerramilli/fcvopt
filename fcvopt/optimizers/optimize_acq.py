@@ -87,7 +87,7 @@ def _optimize_botorch_acqf(
         Xs = torch.stack(Xs)                       # [R, q, d]
         Vs = torch.stack(Vs).view(-1)             # [R]
         best_idx = torch.argmax(Vs)
-        new_x, max_acq = Xs[best_idx].unsqueeze(0), Vs[best_idx]
+        new_x, max_acq = Xs[best_idx], Vs[best_idx]
     else:
         # fallback to the default single‐call
         new_x, max_acq = optimize_acqf(
