@@ -8,7 +8,7 @@ import optuna
 from fcvopt.configspace import ConfigurationSpace
 from ConfigSpace import Float,Integer,Categorical
 
-from fcvopt.crossvalidation.sklearn_cvobj import XGBoostCVObjEarlyStopping
+from xgb_cvobj import XGBoostCVObjEarlyStopping
 from fcvopt.crossvalidation.optuna_obj import get_optuna_objective
 from fcvopt.util.samplers import stratified_sample
 

@@ -17,7 +17,6 @@ Models Supported
 ----------------
 
 * Scikit-learn models: Any sklearn estimator (RandomForest, SVM, etc.)
-* XGBoost: With early stopping support
 * Neural Networks: Multi-layer perceptrons and Tabular ResNet architectures
 * Custom models: Extend the base CVObjective class
 
@@ -39,10 +38,9 @@ Scikit-learn Wrappers
     :show-inheritance:
     :special-members: __call__
 
-.. autoclass:: fcvopt.crossvalidation.sklearn_cvobj.XGBoostCVObjEarlyStopping
-    :members:
-    :undoc-members:
-    :show-inheritance:
+
+Neural Network Wrappers
+-----------------------
 
 .. autoclass:: fcvopt.crossvalidation.resnet_cvobj.ResNetCVObj
     :members:

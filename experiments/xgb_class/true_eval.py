@@ -18,7 +18,7 @@ from ConfigSpace import Float,Integer,Categorical
 from fcvopt.optimizers.active_learning import ActiveLearning
 
 from argparse import ArgumentParser
-from fcvopt.crossvalidation.sklearn_cvobj import XGBoostCVObjEarlyStopping
+from xgb_cvobj import XGBoostCVObjEarlyStopping
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 

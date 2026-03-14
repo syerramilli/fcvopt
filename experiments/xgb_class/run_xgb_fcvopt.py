@@ -9,7 +9,7 @@ from ConfigSpace import Float,Integer,Categorical
 
 from fcvopt.optimizers.fcvopt import FCVOpt
 from fcvopt.optimizers.mtbo_cv import MTBOCVOpt
-from fcvopt.crossvalidation.sklearn_cvobj import XGBoostCVObjEarlyStopping
+from xgb_cvobj import XGBoostCVObjEarlyStopping
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 

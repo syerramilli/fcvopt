@@ -10,7 +10,7 @@ from ConfigSpace import Float,Integer,Categorical
 from smac import HyperparameterOptimizationFacade, Scenario
 from smac.initial_design import AbstractInitialDesign
 
-from fcvopt.crossvalidation.sklearn_cvobj import XGBoostCVObjEarlyStopping
+from xgb_cvobj import XGBoostCVObjEarlyStopping
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 
