@@ -1,0 +1,145 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── 1. BUILD ─────────────────────────────────────────────────────────────
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build frontend
+        run: pip install build
+
+      - name: Build wheel and sdist
+        run: python -m build
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ─── 2. PUBLISH TO TESTPYPI ───────────────────────────────────────────────
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  # ─── 3. VERIFY FROM TESTPYPI ──────────────────────────────────────────────
+  verify-testpypi:
+    name: Verify installation from TestPyPI
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for TestPyPI to propagate
+        run: sleep 60
+
+      - name: Install CPU-only PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install GP/BO deps without re-resolving torch
+        run: pip install --no-deps gpytorch botorch linear_operator
+
+      - name: Install remaining fcvopt dependencies from PyPI
+        run: |
+          pip install ConfigSpace "mlflow>=3.0,<3.6" "numpy>=2.0" "scipy>=1.12" \
+            "scikit-learn>=1.4.2" "skorch>=0.15" "pandas>=2.2.2" \
+            "xgboost>=2.0.0,<3" "joblib>=1.3"
+
+      - name: Install fcvopt from TestPyPI
+        run: |
+          pip install --no-deps \
+            --index-url https://test.pypi.org/simple/ \
+            fcvopt==${{ steps.version.outputs.version }}
+
+      - name: Verify importability and version
+        run: |
+          python -c "
+          import fcvopt
+          print('fcvopt version:', fcvopt.__version__)
+          from fcvopt.optimizers import FCVOpt, BayesOpt
+          from fcvopt.crossvalidation import CVObjective, SklearnCVObj
+          from fcvopt.configspace import ConfigurationSpace
+          print('All core imports successful')
+          "
+
+  # ─── 4. PUBLISH TO PYPI ───────────────────────────────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: verify-testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ─── 5. TRIGGER DOCS REBUILD ──────────────────────────────────────────────
+  trigger-docs:
+    name: Trigger docs workflow on master
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Dispatch docs workflow on master branch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'docs.yml',
+              ref: 'refs/heads/master',
+            });
+            console.log('Docs workflow dispatched on master');
