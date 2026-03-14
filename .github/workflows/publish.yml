@@ -80,8 +80,8 @@ jobs:
       - name: Install CPU-only PyTorch
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Install GP/BO deps without re-resolving torch
-        run: pip install --no-deps gpytorch botorch linear_operator
+      - name: Install GP/BO deps
+        run: pip install gpytorch botorch
 
       - name: Install remaining fcvopt dependencies from PyPI
         run: |
