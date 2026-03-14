@@ -60,6 +60,8 @@ jobs:
     name: Trigger docs workflow on master
     needs: publish-pypi
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
 
     steps:
       - name: Dispatch docs workflow on master branch
