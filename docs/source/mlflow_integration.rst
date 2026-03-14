@@ -1,99 +1,147 @@
 MLflow Integration
 ==================
 
-FCVOpt integrates with `MLflow <https://mlflow.org/>`_ for automatic experiment tracking during hyperparameter optimization.
+FCVOpt integrates with `MLflow <https://mlflow.org/>`_ to automatically track hyperparameter
+optimization runs. Tracking is initialized lazily on the first call to :meth:`run` or
+:meth:`optimize`, so simply creating an optimizer does not start a run.
 
 What Gets Tracked
 -----------------
 
-FCVOpt automatically logs:
+Each optimization run is organized as a **parent run** with one **nested child run per
+trial evaluation**. The following are tracked automatically:
 
-* Hyperparameter configurations evaluated
-* Cross-validation scores and best values found
-* Number of fold evaluations and optimization progress
-* Acquisition function settings and fold selection strategy
-* Optimization runtime and convergence metrics
+**Parent run**
 
-Tracking Options
-----------------
+* Tags: framework name, acquisition function, batch acquisition mode, random seed
+* Parameters: ``minimize``, ``acquisition_q``, ``n_jobs``, ``model_checkpoint_freq``
+* Metrics (logged per iteration): ``f_inc_obs``, ``f_inc_est``, ``acq_val``, ``fit_time``, ``acq_opt_time``
+* Artifacts:
 
-Local Directory Tracking:
+  * ``config_space.json`` — the hyperparameter configuration space
+  * ``evals/eval_NNN.json`` — one JSON file per trial evaluation (used for run restoration)
+  * ``iterations/iter_NNN.json`` — per-iteration snapshots with incumbent configuration and acquisition metrics
+  * ``checkpoints/iter_NNN_model_state.pth`` — GP model state dicts (frequency controlled by ``model_checkpoint_freq``)
+
+**Child runs** (one per trial)
+
+* Parameters: hyperparameter configuration values, trial index
+* Metrics: ``loss``, ``eval_time``
+
+Specifying Where to Store Runs
+-------------------------------
+
+Two mutually exclusive parameters control where MLflow stores run data:
+
+* **``tracking_dir``** — a plain local directory path (e.g., ``"./my_experiments"``).
+  Internally converted to a ``file:`` URI.
+* **``tracking_uri``** — a fully-formed MLflow tracking URI. Use this for remote servers
+  (``"http://localhost:5000"``) or explicit ``file:`` and database URIs
+  (``"sqlite:///mlflow.db"``). Takes precedence over ``tracking_dir`` if both are set.
+
+If neither is provided, runs are stored in ``./mlruns`` relative to the working directory.
 
 .. code-block:: python
 
-   from fcvopt.optimizers import FCVOpt
+   from fcvopt.optimizers import BayesOpt  # or FCVOpt
 
-   # Track to local directory
-   optimizer = FCVOpt(
-       obj=cv_obj.cvloss,
+   # Local directory (most common)
+   optimizer = BayesOpt(
+       obj=cv_obj,
        config=config_space,
-       tracking_dir='./my_experiments/',  # Local directory
-       experiment_name='rf_optimization'
+       tracking_dir='./my_experiments',
+       experiment='rf_optimization',
+       run_name='run_01',
    )
 
-Remote MLflow Server:
+   # Remote MLflow server
+   optimizer = BayesOpt(
+       obj=cv_obj,
+       config=config_space,
+       tracking_uri='http://localhost:5000',
+       experiment='rf_optimization',
+   )
+
+The ``experiment`` parameter groups related runs under a named experiment in the MLflow UI
+(defaults to ``"BayesOpt"`` or ``"FCVOpt"`` if not specified). The ``run_name`` parameter
+names the individual run (defaults to a timestamp string).
+
+Running the Optimizer
+---------------------
+
+:meth:`run` and :meth:`optimize` differ in how they count iterations:
+
+* **``run(n_iter)``** — performs exactly ``n_iter`` acquisition steps, not counting
+  the initial random evaluations.
+* **``optimize(n_trials)``** — performs ``n_trials`` total evaluations, including the
+  initial random phase.
+
+The MLflow run is **not closed automatically** after :meth:`run` or :meth:`optimize`
+returns. This allows seamless continuation runs on the same instance. Use the optimizer
+as a context manager to ensure the run is properly closed:
 
 .. code-block:: python
 
-   # Track to remote MLflow server
-   optimizer = FCVOpt(
-       obj=cv_obj.cvloss,
-       config=config,
-       tracking_uri='http://localhost:5000',  # MLflow server URL
-       experiment_name='rf_optimization'
-   )
+   with BayesOpt(obj=cv_obj, config=config_space, tracking_dir='./experiments') as bo:
+       bo.run(n_iter=20, n_init=5)
+       bo.run(n_iter=10)   # continuation — appends to the same MLflow run
+   # MLflow run closed automatically on exit
 
-Continuing Runs
+Alternatively, call :meth:`end_run` explicitly:
+
+.. code-block:: python
+
+   bo = BayesOpt(obj=cv_obj, config=config_space, tracking_dir='./experiments')
+   best_config = bo.optimize(n_trials=30, n_init=5)
+   bo.end_run()
+
+Restoring a Run
 ---------------
 
-Continue optimization in the current session:
+You can restore a previous run and continue optimization from where it left off. The
+optimizer reloads all evaluated configurations and the final GP model checkpoint from
+the MLflow artifact store.
+
+Restore by **run ID** (most reliable — the run ID is printed or visible in the MLflow UI):
 
 .. code-block:: python
 
-   # Initial run
-   optimizer = FCVOpt(obj=cv_obj.cvloss, config=config_space, tracking_dir='./experiments/')
-   best_conf = optimizer.optimize(n_trials=50)
-
-   # Continue with more trials in same session
-   best_conf = optimizer.optimize(n_trials=25)  # Additional 25 trials
-
-Restoring Runs
---------------
-
-Restore and continue optimization in a new session:
-
-.. code-block:: python
-
-   # define your CV objective as before
-   cv_obj = ...
-
-   # In a new session, restore previous run
-   restored_optimizer = FCVOpt.restore_from_mlflow(
-       obj=cv_obj.cvloss,
+   restored = BayesOpt.restore_from_mlflow(
+       obj=cv_obj,
        run_id='your_run_id_here',
-       n_folds=5,  # Must match original optimization
-       tracking_dir='./experiments/'
+       tracking_dir='./experiments',
    )
+   best_config = restored.optimize(n_trials=20)
+   restored.end_run()
 
-   # Continue optimization with additional trials
-   best_config = restored_optimizer.optimize(n_trials=50)
+Restore by **experiment and run name** (useful when you set a meaningful ``run_name``
+on the original run):
+
+.. code-block:: python
+
+   restored = BayesOpt.restore_from_mlflow(
+       obj=cv_obj,
+       experiment_name='rf_optimization',
+       run_name='run_01',
+       tracking_dir='./experiments',
+   )
+   best_config = restored.optimize(n_trials=20)
+   restored.end_run()
+
+.. note::
+
+   Either ``run_id`` **or** both ``experiment_name`` and ``run_name`` must be provided.
+   ``tracking_uri`` and ``tracking_dir`` are mutually exclusive.
 
 MLflow UI
 ---------
 
-View your experiments in the MLflow web interface:
+To browse tracked experiments in the MLflow web interface, launch the UI pointing at
+your tracking directory:
 
 .. code-block:: bash
 
-   # Navigate to your tracking directory
-   cd <path_to_your_tracking_dir>
+   mlflow ui --backend-store-uri ./my_experiments
 
-   # Launch MLflow UI
-   mlflow ui
-
-   # Open http://localhost:5000 in your browser
-
-The UI allows you to:
-
-* Track experiment metadata and performance metrics
-* Export results
+Then open ``http://localhost:5000`` in your browser. The UI lets you compare runs,
+plot metrics over iterations, download artifacts, and retrieve run IDs for restoration.
