@@ -1,23 +1,17 @@
 import numpy as np
 import torch
 import torch.nn as nn
-
-try:
-    from skorch import NeuralNetRegressor, NeuralNetClassifier, NeuralNetBinaryClassifier
-    from skorch.callbacks import EarlyStopping, EpochScoring, LRScheduler
-    from skorch.dataset import ValidSplit
-except ImportError as e:
-    raise ImportError("skorch must be installed to use ResNetCVObj") from e
-
-from sklearn.metrics import make_scorer
+from torch.utils.data import TensorDataset, DataLoader
+from sklearn.base import clone
+from sklearn.model_selection import train_test_split
 from typing import Optional, Dict
 
-from ..crossvalidation.sklearn_cvobj import SklearnCVObj
+from ..crossvalidation.cvobjective import CVObjective
 from ..configspace import ConfigurationSpace
 from ConfigSpace import Float, Integer, Categorical
 
 
-def make_normalization(normalization: str, input_dim: int) -> nn.Module:
+def _make_normalization(normalization: str, input_dim: int) -> nn.Module:
     """
     Return a normalization layer instance for 1D tabular features.
 
@@ -73,12 +67,12 @@ class ResNetBlock(nn.Module):
         d_hidden = int(hidden_factor * input_dim)
 
         self.ff = nn.Sequential(
-            make_normalization(normalization, input_dim),
+            _make_normalization(normalization, input_dim),
             nn.Linear(input_dim, d_hidden),
             nn.ReLU(),
-            nn.Dropout(hidden_dropout),  # hidden dropout
+            nn.Dropout(hidden_dropout),
             nn.Linear(d_hidden, input_dim),
-            nn.Dropout(residual_dropout),  # residual dropout
+            nn.Dropout(residual_dropout),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -101,7 +95,8 @@ class TabularResNet(nn.Module):
 
     Args:
         input_dim: Input feature dimension.
-        output_dim: Output dimension (``1`` for regression, or number of classes).
+        output_dim: Output dimension (``1`` for regression/binary classification,
+            or number of classes for multiclass).
         n_hidden: Number of residual blocks (default: ``2``).
         layer_size: Width of the hidden representation (default: ``64``).
         normalization: ``'batchnorm'`` or ``'layernorm'``.
@@ -147,7 +142,7 @@ class TabularResNet(nn.Module):
             )
 
         self.prediction = nn.Sequential(
-            make_normalization(normalization, layer_size),
+            _make_normalization(normalization, layer_size),
             nn.ReLU(),
             nn.Linear(layer_size, output_dim),
         )
@@ -156,133 +151,374 @@ class TabularResNet(nn.Module):
         return self.prediction(self.ff(x))
 
 
-class ResNetCVObj(SklearnCVObj):
+class ResNetCVObj(CVObjective):
     """
     Cross-validation objective for tabular ResNet models
-    (PyTorch + skorch; `Gorishniy et al. (2021) <https://proceedings.neurips.cc/paper_files/paper/2021/file/9d86d83f925f2149e9edb0ac3b49229c-Paper.pdf>`_).
+    (`Gorishniy et al. (2021) <https://proceedings.neurips.cc/paper_files/paper/2021/file/9d86d83f925f2149e9edb0ac3b49229c-Paper.pdf>`_).
 
-    Builds a scikit-learn-compatible skorch estimator around :class:`TabularResNet`
-    and evaluates it using the CV pipeline from :class:`fcvopt.crossvalidation.SklearnCVObj`.
+    Implements :meth:`fit_and_test` with a self-contained PyTorch training loop
+    that includes early stopping, gradient clipping, and learning-rate scheduling.
+    No external training library is required.
 
-    Built-ins:
-      - **Early stopping** (patience 15) monitored on a validation metric
-      - **LR scheduling**: ``ReduceLROnPlateau`` (factor 0.1, patience 5, min_lr 1e-5)
-      - Uses :func:`sklearn.metrics.make_scorer` with ``greater_is_better=False`` so
-        lower values indicate better loss
+    Training details per fold:
+
+    * A 10 % internal validation split is held out from the training data to monitor
+      the validation loss.
+    * Early stopping (configurable ``patience``, default 10) restores the best checkpoint.
+    * ``ReduceLROnPlateau`` (factor 0.1, patience 5, min_lr 1e-5) adjusts the
+      learning rate during training.
+    * Gradient norms are clipped at 5.0 to improve stability.
+    * Singleton mini-batches are dropped to avoid ``BatchNorm1d`` failures.
 
     Args:
-        max_epochs: Maximum training epochs per fold.
-        optimizer: Optimizer name from ``torch.optim`` (e.g., ``'SGD'``, ``'Adam'``, ``'AdamW'``).
-        batch_size: Mini-batch size used during training. Can be overridden here if the
-            user wants to tune it externally; otherwise leave at the default (``256``).
-        **kwargs: Forwarded to :class:`SklearnCVObj` (e.g., ``X``, ``y``, ``task``,
-            ``loss_metric``, CV settings, ``needs_proba``, etc.).
+        X: Feature matrix of shape ``(n_samples, n_features)``. All features
+            must be numeric; encode categoricals beforehand.
+        y: Target array of shape ``(n_samples,)``.
+        task: One of ``'regression'``, ``'binary_classification'``, or
+            ``'classification'``.
+        loss_metric: Callable ``(y_true, y_pred) -> float`` (lower is better).
+        needs_proba: If ``True``, probabilities (sigmoid for binary, softmax for
+            multiclass) are passed to ``loss_metric`` instead of hard labels.
+            Ignored for regression. Defaults to ``False``.
+        n_splits: Number of CV folds. Defaults to ``10``.
+        n_repeats: Number of CV repeats. Defaults to ``1``.
+        stratified: Use stratified splits for classification. Defaults to ``True``.
+        scale_output: Standardize regression targets per fold (using training
+            statistics only). Defaults to ``False``.
+        input_preprocessor: Optional sklearn-compatible transformer fitted on
+            each training fold and applied to both train and test. Defaults to ``None``.
+        num_jobs: Parallel fold evaluations. Defaults to ``1``.
+        rng_seed: Seed for reproducibility. Defaults to ``None``.
+        max_epochs: Maximum training epochs per fold. Defaults to ``100``.
+        patience: Early-stopping patience (number of epochs without val-loss
+            improvement before training halts). Defaults to ``10``.
+        optimizer: Name of a ``torch.optim`` optimizer class (e.g. ``'AdamW'``,
+            ``'Adam'``, ``'SGD'``). Defaults to ``'AdamW'``.
+        batch_size: Mini-batch size. Pass this argument (not a hyperparameter) if
+            you want a fixed batch size; include it in the config space only if you
+            want to tune it. Defaults to ``256``.
+        device: PyTorch device string, e.g. ``'cpu'`` or ``'cuda'``.
+            Defaults to ``'cpu'``.
 
-    Notes:
-        * Tasks: ``'regression'``, ``'binary_classification'``, or ``'classification'``.
-          For binary classification, ``BCEWithLogitsLoss`` is used with a single output logit.
-        * A ``ValidSplit(10, stratified=...)`` is used; stratification is enabled for
-          classification tasks.
-        * Labels are cast appropriately: int64 for multiclass, float32 for binary/regression.
+    Expected keys in ``params`` dict (passed to :meth:`fit_and_test` via the optimizer):
 
-    Expected keys in ``params`` (for :meth:`construct_model`):
-        - ``n_hidden``: number of residual blocks
-        - ``layer_size``: hidden width
-        - ``normalization``: ``'batchnorm'`` or ``'layernorm'``
-        - ``hidden_factor``: expansion factor inside blocks
-        - ``hidden_dropout``: dropout inside blocks
-        - ``residual_dropout``: dropout on residual output
-        - ``lr``: learning rate
-        - ``weight_decay``: L2 weight decay
-        - ``momentum``: (only if ``optimizer == 'SGD'``)
+    .. list-table::
+       :header-rows: 1
+
+       * - Key
+         - Description
+       * - ``n_hidden``
+         - Number of residual blocks
+       * - ``layer_size``
+         - Hidden width
+       * - ``normalization``
+         - ``'batchnorm'`` or ``'layernorm'``
+       * - ``hidden_factor``
+         - Expansion factor inside each block
+       * - ``hidden_dropout``
+         - Dropout rate inside blocks
+       * - ``residual_dropout``
+         - Dropout rate on residual output
+       * - ``lr``
+         - Learning rate
+       * - ``weight_decay``
+         - L2 regularization strength
+       * - ``momentum``
+         - Momentum (only when ``optimizer='SGD'``)
+
+    Example:
+        .. code-block:: python
+
+            from sklearn.datasets import make_classification
+            from sklearn.metrics import roc_auc_score
+            from sklearn.preprocessing import StandardScaler
+            from fcvopt.crossvalidation import ResNetCVObj
+            from fcvopt.optimizers import FCVOpt
+
+            X, y = make_classification(n_samples=1000, n_features=20, random_state=0)
+
+            cv_obj = ResNetCVObj(
+                X=X, y=y,
+                task='binary_classification',
+                loss_metric=lambda yt, yp: 1 - roc_auc_score(yt, yp),
+                needs_proba=True,
+                n_splits=5,
+                input_preprocessor=StandardScaler(),
+                max_epochs=100,
+            )
+
+            config = cv_obj.get_recommended_configspace()
+            optimizer = FCVOpt(obj=cv_obj, n_folds=5, config=config, acq_function='LCB')
+            best = optimizer.optimize(n_trials=30)
     """
     def __init__(
         self,
+        X,
+        y,
+        task: str,
+        loss_metric,
+        needs_proba: bool = False,
+        n_splits: int = 10,
+        n_repeats: int = 1,
+        stratified: bool = True,
+        scale_output: bool = False,
+        input_preprocessor=None,
+        num_jobs: int = 1,
+        rng_seed: Optional[int] = None,
         max_epochs: int = 100,
+        patience: int = 10,
         optimizer: str = "AdamW",
         batch_size: int = 256,
-        **kwargs,
+        device: str = "cpu",
     ):
-        super().__init__(estimator=None, **kwargs)
-        self.max_epochs = max_epochs
-        self.optimizer = optimizer
-        self.batch_size = batch_size
-
-        # Determine target formatting / output dimension
-        self.num_targets = 1
-        if self.task == "classification":
-            self.y = self.y.astype(np.int64)
-            self.num_targets = int(np.unique(self.y).size)
-        elif self.task == "binary_classification":
-            self.y = self.y.astype(np.float32)
-            self.num_targets = 1
-
-        self.input_dim = self.X.shape[1]
-
-    def construct_model(self, params: Dict):
-        """
-        Build a skorch-wrapped :class:`TabularResNet` configured from ``params`` and class settings.
-
-        Returns:
-            A ``NeuralNetRegressor`` or ``NeuralNetClassifier`` ready for ``fit``/``predict``.
-        """
-        if self.task == "regression":
-            skorch_class = NeuralNetRegressor
-            criterion = nn.MSELoss
-        elif self.task == "classification":
-            skorch_class = NeuralNetClassifier
-            criterion = nn.CrossEntropyLoss
-        else:  # binary_classification
-            skorch_class = NeuralNetBinaryClassifier
-            criterion = nn.BCEWithLogitsLoss
-
-        model = skorch_class(
-            module=TabularResNet,
-            criterion=criterion,
-            iterator_train__shuffle=True,
-            iterator_train__drop_last=True,
-            module__input_dim=self.input_dim,
-            module__output_dim=self.num_targets,
-            module__n_hidden=params["n_hidden"],
-            module__layer_size=params["layer_size"],
-            module__normalization=params["normalization"],
-            module__hidden_factor=params["hidden_factor"],
-            module__hidden_dropout=params["hidden_dropout"],
-            module__residual_dropout=params["residual_dropout"],
-            callbacks=[
-                EpochScoring(
-                    scoring=make_scorer(
-                        self.loss_metric,
-                        response_method='predict_proba' if self.needs_proba else 'predict',
-                        greater_is_better=False,  # treat metric as loss
-                    ),
-                    lower_is_better=True,
-                    name="valid_metric",
-                ),
-                EarlyStopping(patience=15, monitor="valid_metric", load_best=True),
-                LRScheduler(
-                    policy="ReduceLROnPlateau",
-                    monitor="valid_metric",
-                    factor=0.1,
-                    mode="min",
-                    patience=5,
-                    verbose=False,
-                    min_lr=1e-5,
-                ),
-            ],
-            optimizer=getattr(torch.optim, self.optimizer),
-            optimizer__lr=params["lr"],
-            optimizer__weight_decay=params["weight_decay"],
-            max_epochs=self.max_epochs,
-            batch_size=self.batch_size,
-            train_split=ValidSplit(10, stratified=("classification" in self.task)),
-            verbose=0,
+        super().__init__(
+            X=X, y=y, task=task, loss_metric=loss_metric,
+            n_splits=n_splits, n_repeats=n_repeats,
+            stratified=stratified, num_jobs=num_jobs, rng_seed=rng_seed,
         )
 
-        if self.optimizer == "SGD" and "momentum" in params:
-            model.set_params(optimizer__momentum=params["momentum"])
+        self.needs_proba = needs_proba
+        self.scale_output = scale_output
+        self.input_preprocessor = input_preprocessor
+        self.max_epochs = max_epochs
+        self.patience = patience
+        self.optimizer_name = optimizer
+        self.batch_size = batch_size
+        self.device = torch.device(device)
+        self._rng = np.random.default_rng(rng_seed)
 
-        return model
+        # Determine output dimension and cast targets
+        self.num_targets = 1
+        if self.task == "classification":
+            # y is already int64 after LabelEncoder in CVObjective.__init__
+            self.num_targets = int(np.unique(self.y).size)
+        elif self.task == "binary_classification":
+            # y is int64 {0,1} after LabelEncoder; BCEWithLogitsLoss needs float32
+            self.y = self.y.astype(np.float32)
+
+        self.input_dim = int(np.asarray(self.X).shape[1])
+
+    def construct_model(self, params: Dict) -> TabularResNet:
+        """
+        Build and return an uninitialized :class:`TabularResNet` from ``params``.
+
+        Args:
+            params: Hyperparameter mapping; must contain ``n_hidden``,
+                ``layer_size``, ``normalization``, ``hidden_factor``,
+                ``hidden_dropout``, ``residual_dropout``.
+
+        Returns:
+            An initialized :class:`TabularResNet` placed on ``self.device``.
+        """
+        return TabularResNet(
+            input_dim=self.input_dim,
+            output_dim=self.num_targets,
+            n_hidden=params["n_hidden"],
+            layer_size=params["layer_size"],
+            normalization=params["normalization"],
+            hidden_factor=params["hidden_factor"],
+            hidden_dropout=params["hidden_dropout"],
+            residual_dropout=params["residual_dropout"],
+        ).to(self.device)
+
+    def evaluate(self, model: "TabularResNet", X: np.ndarray) -> torch.Tensor:
+        """
+        Run a trained model on a feature array and return predictions as a CPU tensor.
+
+        Task-specific output transformations are applied so the result is ready
+        to pass directly to ``loss_metric``:
+
+        * **Regression**: raw output, shape ``(N,)``
+        * **Binary classification**: sigmoid of the logit, shape ``(N,)``
+        * **Multiclass classification**: class probabilities via softmax, shape ``(N, n_classes)``
+
+        Args:
+            model: A trained :class:`TabularResNet` instance.
+            X: Feature array of shape ``(N, n_features)``; will be cast to float32.
+
+        Returns:
+            Prediction tensor on CPU.
+        """
+        dataset = TensorDataset(torch.from_numpy(np.asarray(X).astype(np.float32)))
+        loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=False)
+
+        model.eval()
+        chunks = []
+        with torch.no_grad():
+            for (X_batch,) in loader:
+                chunks.append(model(X_batch.to(self.device)).cpu())
+        out = torch.cat(chunks, dim=0)
+
+        if self.task == "regression":
+            return out.squeeze(-1)
+        if self.task == "binary_classification":
+            return torch.sigmoid(out).squeeze(-1)
+        return torch.softmax(out, dim=1)
+
+    def fit_and_test(
+        self,
+        params: Dict,
+        train_index,
+        test_index,
+    ) -> float:
+        """
+        Train a :class:`TabularResNet` on one CV fold and return the test loss.
+
+        Steps:
+
+        1. Slice ``X``/``y`` by ``train_index`` / ``test_index``.
+        2. Apply ``input_preprocessor`` (fit on train only) if provided.
+        3. Standardize regression targets using train statistics if
+           ``scale_output=True``.
+        4. Hold out 10 % of the training data as an internal validation set.
+        5. Train via a :class:`~torch.utils.data.DataLoader` (early stopping +
+           gradient clipping + ``ReduceLROnPlateau``).
+        6. Restore the best checkpoint; compute the test metric via
+           :meth:`evaluate`.
+
+        Args:
+            params: Hyperparameter configuration.
+            train_index: Row indices for the training portion of this split.
+            test_index: Row indices for the testing portion of this split.
+
+        Returns:
+            Scalar test loss for this fold (lower is better).
+        """
+        X = np.asarray(self.X)
+
+        X_train_full = X[train_index].astype(np.float32)
+        X_test = X[test_index].astype(np.float32)
+        y_train_full = self.y[train_index].copy()
+        y_test = self.y[test_index]
+
+        # Optional input preprocessing (fit on train only)
+        if self.input_preprocessor is not None:
+            prep = clone(self.input_preprocessor).fit(X_train_full)
+            X_train_full = prep.transform(X_train_full).astype(np.float32)
+            X_test = prep.transform(X_test).astype(np.float32)
+
+        # Optional output scaling for regression
+        y_mean, y_std = 0.0, 1.0
+        if self.scale_output and self.task == "regression":
+            y_arr = y_train_full.astype(np.float64)
+            y_mean = float(y_arr.mean())
+            y_std = float(y_arr.std()) or 1.0
+            y_train_full = ((y_arr - y_mean) / y_std).astype(np.float32)
+
+        # Internal validation split (10 %)
+        stratify = y_train_full.astype(np.int64) if "classification" in self.task else None
+        val_seed = int(self._rng.integers(0, 2**31))
+        try:
+            X_tr, X_val, y_tr, y_val = train_test_split(
+                X_train_full, y_train_full,
+                test_size=0.1, stratify=stratify, random_state=val_seed,
+            )
+        except ValueError:
+            X_tr, X_val, y_tr, y_val = train_test_split(
+                X_train_full, y_train_full,
+                test_size=0.1, stratify=None, random_state=val_seed,
+            )
+
+        # Build model, loss, optimizer, scheduler
+        model = self.construct_model(params)
+
+        if self.task == "regression":
+            criterion = nn.MSELoss()
+            val_criterion = nn.MSELoss(reduction="sum")
+        elif self.task == "binary_classification":
+            criterion = nn.BCEWithLogitsLoss()
+            val_criterion = nn.BCEWithLogitsLoss(reduction="sum")
+        else:
+            criterion = nn.CrossEntropyLoss()
+            val_criterion = nn.CrossEntropyLoss(reduction="sum")
+
+        opt_cls = getattr(torch.optim, self.optimizer_name)
+        opt_kwargs: Dict = {"lr": params["lr"], "weight_decay": params["weight_decay"]}
+        if self.optimizer_name == "SGD" and "momentum" in params:
+            opt_kwargs["momentum"] = params["momentum"]
+        opt = opt_cls(model.parameters(), **opt_kwargs)
+
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            opt, mode="min", factor=0.1, patience=5, min_lr=1e-5,
+        )
+
+        # Build DataLoaders — data stays on CPU; batches are moved to device on the fly
+        dev = self.device
+
+        if self.task in ("regression", "binary_classification"):
+            y_tr_t = torch.from_numpy(y_tr.astype(np.float32)).reshape(-1, 1)
+            y_val_t = torch.from_numpy(y_val.astype(np.float32)).reshape(-1, 1)
+        else:
+            y_tr_t = torch.from_numpy(y_tr.astype(np.int64))
+            y_val_t = torch.from_numpy(y_val.astype(np.int64))
+
+        train_dataset = TensorDataset(torch.from_numpy(X_tr), y_tr_t)
+        val_dataset = TensorDataset(torch.from_numpy(X_val), y_val_t)
+
+        # drop_last avoids singleton batches that break BatchNorm1d
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            drop_last=len(train_dataset) > self.batch_size,
+        )
+        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
+
+        # Training loop with early stopping
+        best_val_loss = float("inf")
+        best_state: Optional[Dict] = None
+        patience_counter = 0
+
+        for _ in range(self.max_epochs):
+            model.train()
+            for X_batch, y_batch in train_loader:
+                X_batch, y_batch = X_batch.to(dev), y_batch.to(dev)
+                opt.zero_grad()
+                loss = criterion(model(X_batch), y_batch)
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 5.0)
+                opt.step()
+
+            model.eval()
+            val_loss_sum = 0.0
+            with torch.no_grad():
+                for X_vb, y_vb in val_loader:
+                    X_vb, y_vb = X_vb.to(dev), y_vb.to(dev)
+                    val_loss_sum += val_criterion(model(X_vb), y_vb).item()
+            val_loss = val_loss_sum / len(val_dataset)
+
+            scheduler.step(val_loss)
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= self.patience:
+                    break
+
+        if best_state is not None:
+            model.load_state_dict({k: v.to(dev) for k, v in best_state.items()})
+
+        # Predict and compute metric via evaluate()
+        y_pred = self.evaluate(model, X_test).numpy()
+
+        if self.task == "regression":
+            if self.scale_output:
+                y_pred = y_pred * y_std + y_mean
+            return self.loss_metric(y_test, y_pred)
+
+        if self.task == "binary_classification":
+            y_true = y_test.astype(np.int64)
+            if self.needs_proba:
+                return self.loss_metric(y_true, y_pred)
+            return self.loss_metric(y_true, (y_pred > 0.5).astype(np.int64))
+
+        # multiclass classification
+        if self.needs_proba:
+            return self.loss_metric(y_test, y_pred)
+        return self.loss_metric(y_test, y_pred.argmax(axis=1))
 
     def get_recommended_configspace(self) -> "ConfigurationSpace":
         """
@@ -314,4 +550,5 @@ class ResNetCVObj(SklearnCVObj):
         # Optimization
         config.add(Float("lr", lower=1e-5, upper=1e-1, log=True, default=1e-3))
         config.add(Float("weight_decay", lower=1e-8, upper=1e-2, log=True, default=1e-5))
+
         return config
